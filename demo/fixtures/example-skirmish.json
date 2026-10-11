@@ -1,0 +1,55 @@
+{
+    "schemaVersion": 1,
+    "name": "Crossroads Skirmish",
+    "mode": "teams",
+    "teams": [
+        { "id": "crown", "name": "Crown Wardens", "members": ["knight", "rogue"] },
+        { "id": "fang", "name": "Fang Cult", "members": ["brute"] }
+    ],
+    "catalogs": {
+        "gear": [
+            { "id": "longsword", "name": "Longsword", "kind": "weapon", "slot": "weapon-1", "handedness": 1,
+              "type": "sharp", "damage": 6, "blunt": 0, "sharp": 0, "durability": 12 },
+            { "id": "cult-dagger", "name": "Cult Dagger", "kind": "weapon", "slot": "weapon-1", "handedness": 1,
+              "type": "sharp", "damage": 3, "blunt": 0, "sharp": 0, "durability": 10 },
+            { "id": "great-mace", "name": "Great Mace", "kind": "weapon", "slot": "weapon-1", "handedness": 2,
+              "type": "blunt", "damage": 8, "blunt": 0, "sharp": 0, "durability": 10 },
+            { "id": "warden-mail", "name": "Warden Mail", "kind": "armour", "slot": "body", "handedness": 0,
+              "type": "sharp", "damage": 0, "blunt": 0.15, "sharp": 0.25, "durability": 8 },
+            { "id": "cult-mask", "name": "Cult Mask", "kind": "armour", "slot": "head", "handedness": 0,
+              "type": "sharp", "damage": 0, "blunt": 0.1, "sharp": 0.2, "durability": 5 }
+        ],
+        "abilities": [
+            { "id": "venom-strike", "name": "Venom Strike", "cost": 1, "cooldown": 2,
+              "effects": [
+                  { "type": "strike" },
+                  { "type": "apply-status", "target": "target", "status": "poison", "stacks": 2, "duration": 3, "potency": 2 }
+              ] }
+        ]
+    },
+    "entities": [
+        { "id": "knight", "name": "Ser Gallant", "team": "crown",
+          "stats": { "health": 30, "strength": 8, "speed": 1, "defense": 3 },
+          "equipment": { "weapons": [{ "id": "longsword", "slot": "weapon-1" }],
+                         "armour": [{ "id": "warden-mail", "slot": "body" }] } },
+        { "id": "rogue", "name": "Whisper", "team": "crown",
+          "stats": { "health": 20, "strength": 5, "speed": 2, "precision": 2, "evasion": 4 },
+          "equipment": { "weapons": [{ "id": "cult-dagger", "slot": "weapon-1" }] },
+          "abilities": ["venom-strike"] },
+        { "id": "brute", "name": "Fang Brute", "team": "fang",
+          "stats": { "health": 40, "strength": 10, "speed": 1 },
+          "statuses": [{ "id": "fear", "stacks": 1 }],
+          "equipment": { "weapons": [{ "id": "great-mace", "slot": "weapon-1" }],
+                         "armour": [{ "id": "cult-mask", "slot": "head" }] } }
+    ],
+    "startingConditions": { "seed": 7, "config": { "maxSteps": 5000 } },
+    "rules": {
+        "contributions": [
+            { "id": "terror-edges", "hook": "damage:post",
+              "when": { "type": "all", "of": [
+                  { "type": "stat", "ref": "target", "stat": "health", "op": "lte", "value": 12 },
+                  { "type": "chance", "p": 0.3 } ] },
+              "effects": [ { "type": "apply-status", "target": "target", "status": "fear", "stacks": 1 } ] }
+        ]
+    }
+}

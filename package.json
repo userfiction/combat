@@ -1,0 +1,40 @@
+{
+    "name": "@userfiction/combat",
+    "version": "1.0.2",
+    "description": "Combat system for User Fiction",
+    "type": "module",
+    "main": "./dist/userfiction-combat.mjs",
+    "module": "./dist/userfiction-combat.mjs",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "development": "./index.ts",
+            "import": "./dist/userfiction-combat.mjs"
+        }
+    },
+    "files": [
+        "dist",
+        "index.ts",
+        "**/*.ts",
+        "!**/*.test.ts",
+        "!vite.config.ts",
+        "!demo"
+    ],
+    "publishConfig": {
+        "access": "public",
+        "registry": "https://registry.npmjs.org"
+    },
+    "scripts": {
+        "build": "vite build && tsc -p tsconfig.build.json",
+        "prepack": "npm run build",
+        "test": "vitest run",
+        "typecheck": "tsc --noEmit",
+        "release": "vite-node ../../../scripts/publish-safe.ts",
+        "dev": "vite --config demo/vite.config.ts",
+        "demo:build": "vite build --config demo/vite.config.ts",
+        "demo:preview": "vite preview --config demo/vite.config.ts"
+    },
+    "author": "NQQT",
+    "license": "ISC"
+}

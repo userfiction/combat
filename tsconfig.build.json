@@ -1,0 +1,23 @@
+{
+    // Declaration-emit config for the npm build (`tsc -p tsconfig.build.json`).
+    // Extends the package tsconfig (which extends the root) but:
+    // - emits ONLY .d.ts into dist/ (JS comes from `vite build`, same split as
+    //   @userfiction/core / @userfiction/engine);
+    // - excludes every test file: the root tsconfig only excludes
+    //   `**/*.test.ts`, so `.test.tsx` files would otherwise emit d.ts files
+    //   importing vitest/@testing-library — broken declaration references for
+    //   npm consumers;
+    // - excludes vite.config.ts so it never lands in dist;
+    // - excludes demo/ (D12): the "vite.config.ts" pattern above matches ONLY
+    //   the root-level config, so without "demo" tsc would emit declarations
+    //   for demo/vite.config.ts and every demo source into dist/ and break the
+    //   npm build's publish surface (demo is app code, never a library export).
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "emitDeclarationOnly": true,
+        "declaration": true,
+        "rootDir": ".",
+        "outDir": "dist"
+    },
+    "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.test.tsx", "vite.config.ts", "demo"]
+}

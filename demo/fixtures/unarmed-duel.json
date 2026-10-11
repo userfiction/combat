@@ -1,0 +1,20 @@
+{
+    "schemaVersion": 1,
+    "name": "Unarmed Duel",
+    "mode": "ffa",
+    "catalogs": {
+        "gear": [
+            { "id": "chipped-knife", "name": "Chipped Knife", "kind": "weapon", "slot": "weapon-1", "handedness": 1,
+              "type": "sharp", "damage": 2, "blunt": 0, "sharp": 0, "durability": 2 }
+        ]
+    },
+    "entities": [
+        { "id": "duelist-a", "name": "Mara",
+          "stats": { "health": 40, "strength": 4, "speed": 1 },
+          "equipment": { "weapons": [{ "id": "chipped-knife", "slot": "weapon-1" }] } },
+        { "id": "duelist-b", "name": "Odo",
+          "stats": { "health": 40, "strength": 4, "speed": 1 },
+          "equipment": { "weapons": [{ "id": "chipped-knife", "slot": "weapon-1" }] } }
+    ],
+    "startingConditions": { "seed": 11 }
+}

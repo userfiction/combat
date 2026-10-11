@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- ============================================================================
+     demo/index.html — single-page shell for the @userfiction/combat demo (D12)
+     Vanilla HTML/CSS/TS only: no React, no backend, no fetch. Every panel's
+     DOM is BUILT by its ui/*.ts module into the mount point below, so the
+     modules own their markup and the shell stays a stable skeleton.
+============================================================================ -->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>@userfiction/combat — battle simulator demo</title>
+      <script type="module" crossorigin src="/assets/index-C9q7DwlB.js"></script>
+      <link rel="stylesheet" crossorigin href="/assets/index-CsbipVCa.css">
+    </head>
+    <body>
+        <header class="top">
+            <h1>Userfiction Combat — mock battle demo</h1>
+            <!-- Trust boundary stated in the UI docs (D7 "Manifests vs code") -->
+            <p class="trust">
+                JSON definitions are strictly data — validated, never executed (no eval, no code from
+                disk). The engine is synchronous; autoplay pacing lives in this UI only.
+            </p>
+        </header>
+
+        <main class="layout">
+            <div class="col col-left">
+                <section class="panel" aria-label="Battle controls">
+                    <h2>Battle</h2>
+                    <div class="fixture-row">
+                        <label for="fixture-select">Fixture</label>
+                        <select id="fixture-select"></select>
+                    </div>
+                    <!-- controls.ts mounts Step / Run-Pause / Run-to-terminal / Reset / rate here -->
+                    <div id="controls-mount"></div>
+                    <!-- outcome banner: role=status announces terminal changes politely -->
+                    <div id="banner" class="banner running" role="status"></div>
+                </section>
+
+                <!-- editor.ts mounts the JSON textarea + Apply/Import/Export + error list -->
+                <div id="editor-mount"></div>
+            </div>
+
+            <div class="col col-right">
+                <section class="panel" aria-label="Entities">
+                    <h2>Entities</h2>
+                    <!-- entities.ts mounts the combatant cards here -->
+                    <div id="entities-mount" class="cards"></div>
+                </section>
+
+                <section class="panel" aria-label="Battle timeline">
+                    <h2>Timeline</h2>
+                    <!-- aria-live=polite mandated by D12; timeline.ts appends step groups -->
+                    <div id="timeline-mount" class="timeline" aria-live="polite"></div>
+                </section>
+
+                <!-- snapshot.ts mounts the collapsible JSON view here -->
+                <div id="snapshot-mount"></div>
+            </div>
+        </main>
+
+    </body>
+</html>

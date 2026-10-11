@@ -1,0 +1,11 @@
+yarn run v1.22.22
+$ vitest run
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90mD:/Projects/typescript/noobscript/packages/userfiction/combat[39m
+
+No test files found, exiting with code 0
+
+[2minclude: [22m[33m**/*.{test,spec}.{ts,tsx,js,jsx}[39m
+[2mexclude:  [22m[33m**/node_modules/**[2m, [22m**/.git/**[39m
+
+Done in 1.15s.

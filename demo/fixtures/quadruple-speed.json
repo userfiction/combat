@@ -1,0 +1,20 @@
+{
+    "schemaVersion": 1,
+    "name": "Quadruple Speed",
+    "mode": "ffa",
+    "catalogs": {
+        "gear": [
+            { "id": "practice-sword", "name": "Practice Sword", "kind": "weapon", "slot": "weapon-1", "handedness": 1,
+              "type": "sharp", "damage": 2, "blunt": 0, "sharp": 0, "durability": 100 }
+        ]
+    },
+    "entities": [
+        { "id": "fast", "name": "Quickblade",
+          "stats": { "health": 200, "strength": 0, "speed": 4, "precision": 10 },
+          "equipment": { "weapons": [{ "id": "practice-sword", "slot": "weapon-1" }] } },
+        { "id": "slow", "name": "Steady Shieldarm",
+          "stats": { "health": 200, "strength": 0, "speed": 1, "precision": 10 },
+          "equipment": { "weapons": [{ "id": "practice-sword", "slot": "weapon-1" }] } }
+    ],
+    "startingConditions": { "seed": 7 }
+}

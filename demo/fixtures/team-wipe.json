@@ -1,0 +1,26 @@
+{
+    "schemaVersion": 1,
+    "name": "Team Wipe",
+    "mode": "teams",
+    "teams": [
+        { "id": "wardens", "name": "Garrison Wardens", "members": ["vanguard", "shieldbearer"] },
+        { "id": "raiders", "name": "Ridge Raiders", "members": ["looter", "scout"] }
+    ],
+    "entities": [
+        { "id": "vanguard", "name": "Sergeant Brann", "team": "wardens",
+          "stats": { "health": 45, "strength": 8, "speed": 1, "defense": 4 },
+          "equipment": { "weapons": [{ "id": "iron-mace", "slot": "weapon-1" }],
+                         "armour": [{ "id": "padded-vest", "slot": "body" }, { "id": "iron-helm", "slot": "head" }] } },
+        { "id": "shieldbearer", "name": "Tessa of the Gate", "team": "wardens",
+          "stats": { "health": 50, "strength": 6, "speed": 0.8, "defense": 5 },
+          "equipment": { "weapons": [{ "id": "rusted-dagger", "slot": "weapon-1" }],
+                         "armour": [{ "id": "buckler", "slot": "shield" }, { "id": "padded-vest", "slot": "body" }] } },
+        { "id": "looter", "name": "Grub", "team": "raiders",
+          "stats": { "health": 25, "strength": 5, "speed": 1.2 },
+          "equipment": { "weapons": [{ "id": "rusted-dagger", "slot": "weapon-1" }] } },
+        { "id": "scout", "name": "Vex", "team": "raiders",
+          "stats": { "health": 22, "strength": 5, "speed": 1.4, "evasion": 2 },
+          "equipment": { "weapons": [{ "id": "rusted-dagger", "slot": "weapon-1" }] } }
+    ],
+    "startingConditions": { "seed": 5 }
+}
