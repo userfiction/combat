@@ -2,8 +2,9 @@
 // @userfiction/combat — src/behavior/rules.test.ts — T5 default-rule tests (task §10
 // rows: default rules exact numbers, dodge 7% §7 case, unarmed floor+blunt,
 // mitigation chain incl. blocked-crit ×0.75, durability/breakage timing,
-// fear/poison/stun timing, resistance, wait-fallback selection, default
-// outcome:decide invariants incl. step-limit and step-0 no-enemies draw)
+// canonical definition-driven statuses (fearful/poisoned/stunned), resistance,
+// wait-fallback selection, default outcome:decide invariants incl. step-limit
+// and step-0 no-enemies draw)
 // ============================================================================
 // Handlers are invoked DIRECTLY with hand-built views and a scripted
 // RngStream, so every draw consumption is asserted exactly (D4g). The chain
@@ -13,6 +14,7 @@
 
 import { defaultRules, applyEquipmentPostDefault, applyStatusTurnEndDefault, enemiesOf } from './rules';
 import type { PhaseDefaultApi } from './rules';
+import { defaultStatusSeed } from '../data/catalogs';
 import {
     addStatModifier,
     applyStatus,
@@ -23,6 +25,7 @@ import {
     decrementStatModifiers,
     dropScheduleEntries,
     findEntity,
+    healEntity,
     removeGear,
     removeStatus,
 } from '../runtime/state';
@@ -108,7 +111,8 @@ const gear: GearDefinition[] = [
 
 let plugin: CombatPlugin;
 beforeEach(() => {
-    // ability catalog for the selector's availability gate (D9)
+    // ability catalog for the selector's availability gate (D9); the CANONICAL
+    // status seed rides along so definition-driven skip rolls have data
     plugin = defaultRules({
         gear,
         abilities: [
@@ -116,6 +120,7 @@ beforeEach(() => {
             { id: 'checked-strike', conditions: { type: 'never' }, effects: [{ type: 'strike' }] },
             { id: 'strike', effects: [{ type: 'strike' }] },
         ],
+        statuses: defaultStatusSeed,
     });
 });
 
@@ -167,28 +172,36 @@ describe('defaultRules action:select', () => {
     const knight = mkView({ id: 'knight', team: 'crown' });
     const brute = mkView({ id: 'brute', team: 'fang' });
 
-    it('stunned entity skips without any RNG draw (stun gates the turn)', () => {
-        const actor = mkView({ id: 'a', statuses: [{ id: 'stun', stacks: 1, duration: 2, potency: 1 }] });
-        const rng = scriptedRng([]);
+    it('canonical stunned (seed skipChancePerStack 1) skips with one draw — the ONLY skip gate', () => {
+        const actor = mkView({ id: 'a', statuses: [{ id: 'stunned', stacks: 1, duration: 2, potency: 1 }] });
+        const rng = scriptedRng([0.999]); // any draw < 1.0 ⇒ skip (chance 1 × stacks 1)
         const result = handler('action:select')(mkStateView([actor, brute]), mkCtx(rng, []), { actor }) as ActionSelection;
         expect(result).toEqual({ kind: 'skip', reason: 'stunned' });
-        expect(rng.draws()).toBe(0);
+        expect(rng.draws()).toBe(1); // the always-true roll consumes its draw (accepted)
     });
 
-    it('fear roll: rng < 0.25 × stacks ⇒ skip feared (one draw)', () => {
-        const actor = mkView({ id: 'a', statuses: [{ id: 'fear', stacks: 2, potency: 1 }] });
-        const rng = scriptedRng([0.4]); // 0.4 < 0.5 ⇒ feared
+    it('fearful roll: rng < 0.25 × stacks ⇒ skip with the STATUS id (one draw)', () => {
+        const actor = mkView({ id: 'a', statuses: [{ id: 'fearful', stacks: 2, potency: 1 }] });
+        const rng = scriptedRng([0.4]); // 0.4 < 0.5 ⇒ skipped
         const result = handler('action:select')(mkStateView([actor, brute]), mkCtx(rng, []), { actor }) as ActionSelection;
-        expect(result).toEqual({ kind: 'skip', reason: 'feared' });
+        expect(result).toEqual({ kind: 'skip', reason: 'fearful' });
         expect(rng.draws()).toBe(1);
     });
 
-    it('fear roll failure proceeds to the pool; stacks 1 threshold is exactly 0.25', () => {
-        const actor = mkView({ id: 'a', statuses: [{ id: 'fear', stacks: 1, potency: 1 }] });
-        const rng = scriptedRng([0.25]); // 0.25 < 0.25 is false ⇒ NOT feared
+    it('fearful roll failure proceeds to the pool; stacks 1 threshold is exactly 0.25', () => {
+        const actor = mkView({ id: 'a', statuses: [{ id: 'fearful', stacks: 1, potency: 1 }] });
+        const rng = scriptedRng([0.25]); // 0.25 < 0.25 is false ⇒ NOT skipped
         const result = handler('action:select')(mkStateView([actor, brute]), mkCtx(rng, []), { actor }) as ActionSelection;
         expect(result).toEqual({ kind: 'attack' });
-        expect(rng.draws()).toBe(1); // the fear roll only — single pool adds none
+        expect(rng.draws()).toBe(1); // the fearful roll only — single pool adds none
+    });
+
+    it('an UNREGISTERED id has no skip semantics (inert custom data, zero draws)', () => {
+        const actor = mkView({ id: 'a', statuses: [{ id: 'daze', stacks: 4, potency: 1 }] });
+        const rng = scriptedRng([]);
+        const result = handler('action:select')(mkStateView([actor, brute]), mkCtx(rng, []), { actor }) as ActionSelection;
+        expect(result).toEqual({ kind: 'attack' });
+        expect(rng.draws()).toBe(0);
     });
 
     it('single usable action selects directly WITHOUT consuming a draw (R6 guarantee)', () => {
@@ -538,6 +551,7 @@ const mkPhaseApi = (state: CombatState, emitted: EventDraft[]): PhaseDefaultApi 
     damageGear: (id, slot, amount) => damageGear(state, id, slot, amount),
     removeGear: (id, slot) => removeGear(state, id, slot),
     damageEntity: (id, amount) => damageEntity(state, id, amount),
+    healEntity: (id, amount) => healEntity(state, id, amount),
     removeStatus: (id, statusId) => removeStatus(state, id, statusId),
     patchStatus: (id, statusId, patch) => {
         const instance = findEntity(state, id).statuses.find((status) => status.id === statusId);
@@ -636,62 +650,75 @@ const mkStatusState = (statuses: { id: string; stacks?: number; duration?: numbe
         schedule: [{ entityId: 'v', readyAt: 1_000_000 }],
     });
 
-describe('applyStatusTurnEndDefault (D5c)', () => {
-    it('fear decays silently stacks−1; at 0 the status is removed with status:expired', () => {
-        const state = mkStatusState([{ id: 'fear', stacks: 2, potency: 1 }]);
+// The canonical resolved-registry lookup the pipeline supplies (seed entries).
+const seedStatusOf = (statusId: string): (typeof defaultStatusSeed)[number] | undefined =>
+    defaultStatusSeed.find((definition) => definition.id === statusId);
+
+describe('applyStatusTurnEndDefault (D5c — definition-driven only)', () => {
+    it('fearful (seed): silent stack decay; expired at 0 with status:expired', () => {
+        const state = mkStatusState([{ id: 'fearful', stacks: 2, potency: 1 }]);
         const emitted: EventDraft[] = [];
-        applyStatusTurnEndDefault(mkPhaseApi(state, emitted), { entity: state.entities[0] });
-        expect(state.entities[0].statuses).toEqual([{ id: 'fear', stacks: 1, potency: 1 }]);
+        applyStatusTurnEndDefault(mkPhaseApi(state, emitted), { entity: state.entities[0] }, seedStatusOf);
+        expect(state.entities[0].statuses).toEqual([{ id: 'fearful', stacks: 1, potency: 1 }]);
         expect(emitted).toEqual([]);
 
-        applyStatusTurnEndDefault(mkPhaseApi(state, emitted), { entity: state.entities[0] });
+        applyStatusTurnEndDefault(mkPhaseApi(state, emitted), { entity: state.entities[0] }, seedStatusOf);
         expect(state.entities[0].statuses).toEqual([]);
-        expect(emitted).toEqual([{ type: 'status:expired', actor: 'v', payload: { statusId: 'fear' } }]);
+        expect(emitted).toEqual([{ type: 'status:expired', actor: 'v', payload: { statusId: 'fearful' } }]);
     });
 
-    it('poison ticks potency × stacks BEFORE duration decay; events tick→damage; expiry after the final tick', () => {
-        const state = mkStatusState([{ id: 'poison', stacks: 3, duration: 2, potency: 2 }]);
+    it('poisoned (seed): tick 1 × stacks BEFORE duration decay; lethal tick kills then expires', () => {
+        const state = mkStatusState([{ id: 'poisoned', stacks: 3, duration: 2, potency: 2 }]);
         const emitted: EventDraft[] = [];
         const api = mkPhaseApi(state, emitted);
-        applyStatusTurnEndDefault(api, { entity: state.entities[0] });
-        // 2 × 3 = 6 damage: 50 → 44; duration 2 → 1 (no expiry yet)
-        expect(state.entities[0].health).toBe(44);
-        expect(state.entities[0].statuses).toEqual([{ id: 'poison', stacks: 3, duration: 1, potency: 2 }]);
+        applyStatusTurnEndDefault(api, { entity: state.entities[0] }, seedStatusOf);
+        // tick 1 × 3 = 3 damage: 50 → 47; duration 2 → 1 (no expiry yet);
+        // potency is instance bookkeeping — it does NOT scale the tick
+        expect(state.entities[0].health).toBe(47);
+        expect(state.entities[0].statuses).toEqual([{ id: 'poisoned', stacks: 3, duration: 1, potency: 2 }]);
         expect(emitted).toEqual([
-            { type: 'status:tick', actor: 'v', payload: { statusId: 'poison', damage: 6 } },
-            { type: 'damage', actor: 'v', target: 'v', payload: { amount: 6, damageType: 'true', source: 'poison', mitigations: { blocked: false, armourFactor: 1, defenseFactor: 1 } } },
+            { type: 'status:tick', actor: 'v', payload: { statusId: 'poisoned', damage: 3 } },
+            { type: 'damage', actor: 'v', target: 'v', payload: { amount: 3, damageType: 'true', source: 'poisoned', mitigations: { blocked: false, armourFactor: 1, defenseFactor: 1 } } },
         ]);
-        // lethal final tick: potency 99 × stacks 1 kills the 5-hp victim —
-        // death event + schedule drop BEFORE the expiry notice (D5c order)
-        const dying = mkStatusState([{ id: 'poison', stacks: 1, duration: 1, potency: 99 }], 5);
+        // lethal final tick: 1 × 5 stacks kills the 3-hp victim — death event
+        // + schedule drop BEFORE the expiry notice (D5c order)
+        const dying = mkStatusState([{ id: 'poisoned', stacks: 5, duration: 1, potency: 1 }], 3);
         const dyingEvents: EventDraft[] = [];
-        applyStatusTurnEndDefault(mkPhaseApi(dying, dyingEvents), { entity: dying.entities[0] });
+        applyStatusTurnEndDefault(mkPhaseApi(dying, dyingEvents), { entity: dying.entities[0] }, seedStatusOf);
         expect(dying.entities[0].living).toBe(false);
         expect(dying.schedule).toEqual([]); // death drops entries immediately
         expect(dyingEvents).toEqual([
-            { type: 'status:tick', actor: 'v', payload: { statusId: 'poison', damage: 5 } },
-            { type: 'damage', actor: 'v', target: 'v', payload: { amount: 5, damageType: 'true', source: 'poison', mitigations: { blocked: false, armourFactor: 1, defenseFactor: 1 } } },
+            { type: 'status:tick', actor: 'v', payload: { statusId: 'poisoned', damage: 3 } },
+            { type: 'damage', actor: 'v', target: 'v', payload: { amount: 3, damageType: 'true', source: 'poisoned', mitigations: { blocked: false, armourFactor: 1, defenseFactor: 1 } } },
             { type: 'death', actor: 'v', payload: {} },
-            { type: 'status:expired', actor: 'v', payload: { statusId: 'poison' } },
+            { type: 'status:expired', actor: 'v', payload: { statusId: 'poisoned' } },
         ]);
     });
 
-    it('stun decays duration−1; expired at 0 (the skip itself is action:select)', () => {
-        const state = mkStatusState([{ id: 'stun', stacks: 1, duration: 2, potency: 1 }]);
+    it('stunned (seed): duration decays −1; expired at 0 (the skip itself is the select roll)', () => {
+        const state = mkStatusState([{ id: 'stunned', stacks: 1, duration: 2, potency: 1 }]);
         const emitted: EventDraft[] = [];
         const api = mkPhaseApi(state, emitted);
-        applyStatusTurnEndDefault(api, { entity: state.entities[0] });
-        expect(state.entities[0].statuses).toEqual([{ id: 'stun', stacks: 1, duration: 1, potency: 1 }]);
-        applyStatusTurnEndDefault(api, { entity: state.entities[0] });
+        applyStatusTurnEndDefault(api, { entity: state.entities[0] }, seedStatusOf);
+        expect(state.entities[0].statuses).toEqual([{ id: 'stunned', stacks: 1, duration: 1, potency: 1 }]);
+        applyStatusTurnEndDefault(api, { entity: state.entities[0] }, seedStatusOf);
         expect(state.entities[0].statuses).toEqual([]);
-        expect(emitted).toEqual([{ type: 'status:expired', actor: 'v', payload: { statusId: 'stun' } }]);
+        expect(emitted).toEqual([{ type: 'status:expired', actor: 'v', payload: { statusId: 'stunned' } }]);
     });
 
-    it('unknown status ids are bookkeeping-only (D5f): untouched, no events', () => {
+    it('unregistered ids are bookkeeping-only (D5f): untouched, no events, no decay', () => {
         const state = mkStatusState([{ id: 'cursed', stacks: 4, duration: 9, potency: 3 }]);
         const emitted: EventDraft[] = [];
-        applyStatusTurnEndDefault(mkPhaseApi(state, emitted), { entity: state.entities[0] });
+        applyStatusTurnEndDefault(mkPhaseApi(state, emitted), { entity: state.entities[0] }, seedStatusOf);
         expect(state.entities[0].statuses).toEqual([{ id: 'cursed', stacks: 4, duration: 9, potency: 3 }]);
+        expect(emitted).toEqual([]);
+    });
+
+    it('omitting the registry lookup (2-argument form) treats every id as unregistered', () => {
+        const state = mkStatusState([{ id: 'poisoned', stacks: 2, duration: 3, potency: 1 }]);
+        const emitted: EventDraft[] = [];
+        applyStatusTurnEndDefault(mkPhaseApi(state, emitted), { entity: state.entities[0] });
+        expect(state.entities[0].statuses).toEqual([{ id: 'poisoned', stacks: 2, duration: 3, potency: 1 }]);
         expect(emitted).toEqual([]);
     });
 
@@ -700,7 +727,7 @@ describe('applyStatusTurnEndDefault (D5c)', () => {
         addStatModifier(state, 'v', 'speed', -1, 1);
         addStatModifier(state, 'v', 'strength', 3, 0); // permanent sentinel
         const emitted: EventDraft[] = [];
-        applyStatusTurnEndDefault(mkPhaseApi(state, emitted), { entity: state.entities[0] });
+        applyStatusTurnEndDefault(mkPhaseApi(state, emitted), { entity: state.entities[0] }, seedStatusOf);
         expect(state.entities[0].statModifiers).toEqual([{ stat: 'strength', amount: 3, remainingTurns: 0 }]);
         expect(emitted).toEqual([{ type: 'stat:expired', actor: 'v', payload: { stat: 'speed', amount: -1 } }]);
     });
@@ -716,6 +743,6 @@ describe('applyStatusTurnEndDefault (D5c)', () => {
 
 // state.applyStatus shim mirroring the pipeline adapter call shape.
 function applyStatusShim(state: CombatState, stacks: number, resistance: number): { kind: string; stacks?: number } {
-    const result = applyStatus(state, 'v', 'fear', { stacks, resistance });
+    const result = applyStatus(state, 'v', 'poisoned', { stacks, resistance });
     return result.kind === 'applied' ? { kind: result.kind, stacks: result.status.stacks } : { kind: result.kind };
 }

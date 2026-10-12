@@ -335,6 +335,72 @@ describe('reconfiguration rebuilds deterministically; reset rewinds (R2)', () =>
 });
 
 // ----------------------------------------------------------------------------
+// Live edit through the facade (T3)
+// ----------------------------------------------------------------------------
+
+describe('editCombatant patches the live battle (T3 — sync, never stale)', () => {
+    it('edits synchronously and the next simulate() continues the SAME battle with the adjustment', async () => {
+        const combat = createUserCombat()
+            .actors(quadActors())
+            .plugins([deterministic])
+            .seed(7);
+        await combat.simulate(); // fast (speed 4, unarmed 1 dmg) hits slow ⇒ slow 199
+        const before = combat.snapshot();
+        expect(before.state.step).toBe(1);
+
+        // synchronous (NOT a promise): the edit applies to the live battle
+        const edited = combat.editCombatant({ entityId: 'slow', health: 90 });
+        expect(edited.state.step).toBe(1); // no step increment
+        expect(edited.state.entities[1].health).toBe(90);
+        const editedEvent = edited.events.find((event) => event.type === 'combatant:edited')!;
+        expect(editedEvent.payload).toEqual({ entityId: 'slow', domains: ['health'], health: { from: 199, to: 90, max: 200, living: true } });
+
+        // the edit did NOT mark the builder stale: the next simulate()
+        // CONTINUES the same battle (step 2 at 500k, log grows — no rebuild)
+        const after = await combat.simulate();
+        expect(after.state.step).toBe(2);
+        expect(after.state.virtualTime).toBe(500_000); // fast's next readiness (250k + 250k)
+        expect(after.state.entities[1].health).toBe(89); // fast hit the edited 90 hp
+        expect(after.events.length).toBe(before.events.length + 1 /* edit event */ + 4 /* step 2 events */);
+    });
+
+    it('edit validation errors throw SYNCHRONOUSLY like the other observation methods', () => {
+        const combat = createUserCombat()
+            .actors(quadActors())
+            .seed(7);
+        combat.snapshot(); // engine built
+        let thrown: unknown;
+        try {
+            combat.editCombatant({ entityId: 'ghost', health: 1 });
+        } catch (error) {
+            thrown = error;
+        }
+        expect(thrown).toBeInstanceOf(CombatValidationError);
+        expect((thrown as CombatValidationError).errors).toEqual(["edit.entityId: unknown entity id 'ghost'"]);
+        // the failed edit left the live battle untouched
+        expect(combat.snapshot().events.every((event) => event.type !== 'combatant:edited')).toBe(true);
+    });
+
+    it('a terminal battle rejects edits synchronously (reset/rebuild is the only path)', async () => {
+        const combat = createUserCombat()
+            .actors([
+                { id: 'a', stats: { health: 5, strength: 100, speed: 1 } },
+                { id: 'b', stats: { health: 1, strength: 0, speed: 1 } },
+            ])
+            .plugins([deterministic])
+            .seed(2);
+        await combat.simulate(); // a kills b — terminal
+        expect(combat.isTerminal()).toBe(true);
+        expect(() => combat.editCombatant({ entityId: 'a', health: 1 })).toThrow(CombatValidationError);
+        try {
+            combat.editCombatant({ entityId: 'a', health: 1 });
+        } catch (error) {
+            expect((error as CombatValidationError).errors).toEqual(['edit: battle is terminal']);
+        }
+    });
+});
+
+// ----------------------------------------------------------------------------
 // Mode + teams setters (R2)
 // ----------------------------------------------------------------------------
 

@@ -166,13 +166,18 @@ describe('renderEventText (D11)', () => {
         expect(renderEventText(ev({ type: 'dodge', actor: 'brute', target: 'rogue' }), snapshot)).toBe("Fang Brute dodges Whisper's attack");
     });
 
-    it('renders unarmed / poison / effect damage sources', () => {
+    it('renders unarmed / damage-over-time / effect damage sources (generic DOT naming)', () => {
         expect(
             renderEventText(ev({ type: 'damage', actor: 'rogue', target: 'brute', payload: { amount: 1, damageType: 'blunt', source: 'unarmed', crit: false, mitigations: { blocked: false, armourFactor: 1, defenseFactor: 1 } } }), snapshot),
         ).toBe('Whisper hits Fang Brute bare-handed for 1 blunt damage');
+        // DOT sources render by the STATUS id that emitted them (generic —
+        // the canonical 'poisoned' seed and any custom id share the path)
         expect(
-            renderEventText(ev({ type: 'damage', actor: 'brute', target: 'brute', payload: { amount: 4, damageType: 'true', source: 'poison', crit: false, mitigations: { blocked: false, armourFactor: 1, defenseFactor: 1 } } }), snapshot),
-        ).toBe('Fang Brute suffers poison for 4 true damage');
+            renderEventText(ev({ type: 'damage', actor: 'brute', target: 'brute', payload: { amount: 4, damageType: 'true', source: 'poisoned', crit: false, mitigations: { blocked: false, armourFactor: 1, defenseFactor: 1 } } }), snapshot),
+        ).toBe('Fang Brute suffers poisoned for 4 true damage');
+        expect(
+            renderEventText(ev({ type: 'damage', actor: 'brute', target: 'brute', payload: { amount: 2, damageType: 'true', source: 'burned', crit: false, mitigations: { blocked: false, armourFactor: 1, defenseFactor: 1 } } }), snapshot),
+        ).toBe('Fang Brute suffers burned for 2 true damage');
         expect(
             renderEventText(ev({ type: 'damage', target: 'brute', payload: { amount: 3, damageType: 'true', source: 'effect', crit: false, mitigations: { blocked: false, armourFactor: 1, defenseFactor: 1 } } }), snapshot),
         ).toBe('Fang Brute takes 3 true damage');
@@ -195,10 +200,10 @@ describe('renderEventText (D11)', () => {
             [ev({ type: 'block', actor: 'brute', target: 'rogue' }), 'Fang Brute blocks the attack!'],
             [ev({ type: 'heal', actor: 'rogue', target: 'brute', payload: { amount: 5 } }), 'Whisper heals Fang Brute for 5'],
             [ev({ type: 'heal', actor: 'rogue', target: 'rogue', payload: { amount: 5 } }), 'Whisper heals for 5'],
-            [ev({ type: 'status:applied', actor: 'brute', payload: { statusId: 'poison', stacks: 2, potency: 2, duration: 3 } }), 'Fang Brute gains poison (stacks 2, duration 3, potency 2)'],
-            [ev({ type: 'status:resisted', actor: 'brute', payload: { statusId: 'fear' } }), 'Fang Brute resists fear'],
-            [ev({ type: 'status:tick', actor: 'brute', payload: { statusId: 'poison', damage: 4 } }), 'Fang Brute suffers poison for 4 damage'],
-            [ev({ type: 'status:expired', actor: 'brute', payload: { statusId: 'fear' } }), "Fang Brute's fear fades"],
+            [ev({ type: 'status:applied', actor: 'brute', payload: { statusId: 'bleeding', stacks: 2, potency: 2, duration: 3 } }), 'Fang Brute gains bleeding (stacks 2, duration 3, potency 2)'],
+            [ev({ type: 'status:resisted', actor: 'brute', payload: { statusId: 'stunned' } }), 'Fang Brute resists stunned'],
+            [ev({ type: 'status:tick', actor: 'brute', payload: { statusId: 'poisoned', damage: 4 } }), 'Fang Brute suffers poisoned for 4 damage'],
+            [ev({ type: 'status:expired', actor: 'brute', payload: { statusId: 'fearful' } }), "Fang Brute's fearful fades"],
             [ev({ type: 'stat:modified', actor: 'rogue', target: 'brute', payload: { stat: 'speed', amount: -1, remainingTurns: 2 } }), "Fang Brute's speed changes by -1"],
             [ev({ type: 'stat:expired', actor: 'brute', payload: { stat: 'speed', amount: -1 } }), "Fang Brute's speed modifier fades"],
             [ev({ type: 'gear:damaged', actor: 'rogue', payload: { gearId: 'cult-dagger', slot: 'weapon-1', durability: 9 } }), "Whisper's cult-dagger wears (9 durability left)"],
@@ -220,6 +225,15 @@ describe('renderEventText (D11)', () => {
     it('falls back to raw ids without a snapshot and for unknown ids', () => {
         expect(renderEventText(ev({ type: 'turn:start', actor: 'rogue' }))).toBe("rogue's turn");
         expect(renderEventText(ev({ type: 'turn:start', actor: 'unknown-id' }), snapshot)).toBe("unknown-id's turn");
+    });
+
+    it('renders the T3 edit event with its domain list (combatant:edited)', () => {
+        expect(
+            renderEventText(ev({ type: 'combatant:edited', actor: 'brute', payload: { domains: ['health', 'statuses'] } }), snapshot),
+        ).toBe('Fang Brute edited (health, statuses)');
+        expect(
+            renderEventText(ev({ type: 'combatant:edited', actor: 'brute', payload: {} }), snapshot),
+        ).toBe('Fang Brute edited');
     });
 
     it('exposes the formatter map for client extension (D11)', () => {

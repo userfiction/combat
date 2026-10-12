@@ -39,7 +39,7 @@ const exampleSkirmish: BattleDefinition = {
                 id: 'venom-strike', name: 'Venom Strike', cost: 1, cooldown: 2,
                 effects: [
                     { type: 'strike' },
-                    { type: 'apply-status', target: 'target', status: 'poison', stacks: 2, duration: 3, potency: 2 },
+                    { type: 'apply-status', target: 'target', status: 'poisoned', stacks: 2, duration: 3, potency: 2 },
                 ],
             },
         ],
@@ -62,7 +62,7 @@ const exampleSkirmish: BattleDefinition = {
         {
             id: 'brute', name: 'Fang Brute', team: 'fang',
             stats: { health: 40, strength: 10, speed: 1 },
-            statuses: [{ id: 'fear', stacks: 1 }],
+            statuses: [{ id: 'fearful', stacks: 1 }],
             equipment: {
                 weapons: [{ id: 'great-mace', slot: 'weapon-1' }],
                 armour: [{ id: 'cult-mask', slot: 'head' }],
@@ -81,7 +81,7 @@ const exampleSkirmish: BattleDefinition = {
                         { type: 'chance', p: 0.3 },
                     ],
                 },
-                effects: [{ type: 'apply-status', target: 'target', status: 'fear', stacks: 1 }],
+                effects: [{ type: 'apply-status', target: 'target', status: 'fearful', stacks: 1 }],
             },
         ],
     },
@@ -253,7 +253,7 @@ describe('starting status instances', () => {
     it('rejects bad id, stacks, duration and potency with exact messages', () => {
         const definition = minimalFfa();
         definition.entities[0].statuses = [
-            { id: 'Fear', stacks: 10, duration: 0, potency: 2.5 } as never,
+            { id: 'Panic', stacks: 10, duration: 0, potency: 2.5 } as never,
         ];
         expect(validateBattleDefinition(definition).errors).toEqual([
             'entities[0].statuses[0].id: must match /^[a-z0-9][a-z0-9-]*$/',
@@ -465,7 +465,7 @@ describe('catalog gear entries (D9)', () => {
     it('validates the shared-field ranges: damage, durability, blunt/sharp, handedness, kind, type', () => {
         expect(validateBattleDefinition(withGear([{
             id: 'doom-hammer', kind: 'weapon', slot: 'weapon-1', handedness: 3,
-            type: 'poison', damage: 1001, blunt: 1.5, sharp: -0.2, durability: 2.5,
+            type: 'toxic', damage: 1001, blunt: 1.5, sharp: -0.2, durability: 2.5,
         }])).errors).toEqual([
             "catalogs.gear[0].handedness: must be one of 0, 1, 2",
             "catalogs.gear[0].type: must be one of 'blunt', 'sharp'",
@@ -653,7 +653,7 @@ describe('declarative rules (D8/D6)', () => {
             effects: [
                 { type: 'damage-flat', target: 'foe', amount: -3, damageType: 'fire' },
                 { type: 'heal', target: 'target' },
-                { type: 'apply-status', target: 'self', status: 'fear', stacks: 10, duration: 0, potency: 0 },
+                { type: 'apply-status', target: 'self', status: 'wilt', stacks: 10, duration: 0, potency: 0 },
                 { type: 'modify-stat', target: 'self', stat: 'morale', amount: Number.NaN, duration: -1 },
                 { type: 'emit' },
             ],

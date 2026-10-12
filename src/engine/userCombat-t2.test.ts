@@ -33,6 +33,11 @@ import {
 import type {
     BattleDefinition,
     BodyPart,
+    CombatantEdit,
+    CombatantGearEdit,
+    CombatantInjuriesEdit,
+    CombatantResourceEdit,
+    CombatantStatusEdit,
     EntityDefinition,
     EntityResources,
     EntityResourcesInput,
@@ -229,7 +234,7 @@ describe('root export surface (R4)', () => {
         expect(MAX_RESOURCE_VALUE).toBe(1_000_000);
         expect(MIN_STATUS_MODIFIER).toBe(-1_000);
         expect(defaultStatusSeed.map((entry) => entry.id)).toEqual([
-            'fearful', 'poisoned', 'bleeding', 'burned', 'blinded', 'blessed', 'hasted',
+            'fearful', 'poisoned', 'stunned', 'bleeding', 'burned', 'blinded', 'blessed', 'hasted',
         ]);
     });
 
@@ -247,7 +252,13 @@ describe('root export surface (R4)', () => {
         const facade: UserCombat = createUserCombat();
         const battle: BattleDefinition = { schemaVersion: 1, mode: 'ffa', entities: [] };
         const actors: EntityDefinition[] = [];
-        expect([definition, decay, tick, part, resources, seedResources, cost, seedCost, key, facade, battle, actors]).toBeDefined();
+        // T3 live-edit contract shapes (frozen shared API with the demo UI)
+        const edit: CombatantEdit = { entityId: 'a', health: 1 };
+        const gearEdit: CombatantGearEdit = { slot: 'weapon-1', id: null, durability: 3 };
+        const statusEdit: CombatantStatusEdit = { id: 'stunned', op: 'set', stacks: 1, duration: 2, potency: 1 };
+        const injuriesEdit: CombatantInjuriesEdit = { add: ['nose'], remove: ['left-leg'] };
+        const resourceEdit: CombatantResourceEdit = { current: 1, max: 2 };
+        expect([definition, decay, tick, part, resources, seedResources, cost, seedCost, key, facade, battle, actors, edit, gearEdit, statusEdit, injuriesEdit, resourceEdit]).toBeDefined();
     });
 });
 

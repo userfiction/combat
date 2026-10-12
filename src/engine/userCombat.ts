@@ -61,6 +61,14 @@
 // battle:start. After a setter, reset() rebuilds the fresh battle first
 // (invalidation rule 2), so the returned snapshot is the new battle's
 // initial state, never the discarded one.
+//
+// T3 live edit: editCombatant(edit) is SYNCHRONOUS and deliberately NOT a
+// setter — it patches the CURRENT battle in place (validate + atomic
+// combatant patch, one 'combatant:edited' event, step/time/RNG preserved)
+// without marking the builder stale, so the next simulate() continues the
+// same battle WITH the adjustments. Reset discards edits (they are state,
+// not configuration); a setter rebuild naturally discards them too, while a
+// restore retains them (the snapshot carries the edited state).
 // ============================================================================
 
 import { createSimulation } from './engine';
@@ -70,6 +78,7 @@ import type {
     BattleDefinition,
     BattleEvent,
     BattleMode,
+    CombatantEdit,
     CombatPlugin,
     EntityDefinition,
     GearDefinition,
@@ -135,6 +144,8 @@ export interface UserCombat {
     events(): BattleEvent[];
     /** Engine reset (D10) on the current battle; after setters this is the rebuilt battle's initial state. */
     reset(): SimulationSnapshot;
+    /** Live edit (T3): synchronous validated atomic combatant patch on the CURRENT battle — like reset/observations it does NOT mark the builder stale (edits are part of the live battle and survive until a setter rebuilds or reset rewinds). Throws CombatValidationError. */
+    editCombatant(edit: CombatantEdit): SimulationSnapshot;
     /** True once the battle is terminal (fault/outcome/undecided). */
     isTerminal(): boolean;
     /** Terminal verdict, or null while running (D5g/D10). */
@@ -301,6 +312,10 @@ export const createUserCombat = (): UserCombat => {
         snapshot: () => resolve().snapshot(),
         events: () => resolve().events(),
         reset: () => resolve().reset(),
+        // T3 live edit: SYNCHRONOUS like reset/observations, and — unlike
+        // every setter — it does NOT set `stale`: the edit applies to the
+        // live battle in place (validate + atomic patch through the runner).
+        editCombatant: (edit) => resolve().editCombatant(edit),
         isTerminal: () => resolve().isTerminal(),
         outcome: () => resolve().outcome(),
     };

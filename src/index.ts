@@ -85,6 +85,12 @@ export type {
     ResourceCost,
     ResourceCostInput,
     ResourceKey,
+    // T3 live-edit contract (CombatantEdit + its domain shapes)
+    CombatantEdit,
+    CombatantGearEdit,
+    CombatantStatusEdit,
+    CombatantInjuriesEdit,
+    CombatantResourceEdit,
     // runtime surfaces (D2/D7/D10)
     Simulation,
     SimulationOptions,

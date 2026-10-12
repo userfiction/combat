@@ -9,7 +9,8 @@
 //   - definition-driven gating (skipChancePerStack; stacks 4 ⇒ chance 1.0);
 //   - seeded modifiers visible in effective stats + snapshots, reversal on
 //     removal/expiry (derived centrally — no accumulation, no stat noise);
-//   - custom overrides of registered defaults and of the LEGACY trio;
+//   - custom overrides of registered defaults; UNREGISTERED ids are inert
+//     open-vocabulary data (no built-in alias semantics);
 //   - resistance integration on generic statuses;
 //   - JSON snapshot restore bit-identity (R5).
 //
@@ -281,7 +282,7 @@ describe('custom registered ailments/buffs (R1: definition registration, not bla
 });
 
 // ----------------------------------------------------------------------------
-// Overrides — registered defaults and the legacy trio
+// Overrides — registered defaults and arbitrary custom ids
 // ----------------------------------------------------------------------------
 
 describe('definition overrides (R1: custom definitions replace registered defaults predictably)', () => {
@@ -299,46 +300,50 @@ describe('definition overrides (R1: custom definitions replace registered defaul
         ]);
     });
 
-    it('defining the LEGACY fear id replaces the hardcoded semantics (tick + duration instead of stack decay)', () => {
-        // client fear: no skip gating (no skipChancePerStack), tick 1 ×
-        // stacks 2, duration decay; the hardcoded stack-decay path must NOT
-        // run (stacks stay 2). Hero acts normally (castOnce: cut at step 1,
-        // attack at step 3).
+    it('a definition on ANY id (even one outside the seed) drives it through the generic path only', () => {
+        // client 'wilt' definition (an id with NO seed entry): tick 1 × stacks
+        // 2, duration decay. There is NO hardcoded per-id branch anywhere —
+        // the generic path is the ONLY path a definition enables.
+        // Hero acts normally (castOnce: cut at step 1, attack at step 3).
         const combat = combatOf(
-            duo({ statuses: [{ id: 'fear', stacks: 2, duration: 2 }] }),
+            duo({ statuses: [{ id: 'wilt', stacks: 2, duration: 2 }] }),
             [{ id: 'cut', cooldown: 1, effects: [{ type: 'emit', message: 'cut' }] }],
             [castOnce('cut', 1)],
-            [{ id: 'fear', decay: 'duration', tick: { damage: 1 } }],
+            [{ id: 'wilt', decay: 'duration', tick: { damage: 1 } }],
         );
         combat.run(2);
         expect(combat.events().filter((event) => event.type === 'action').map((event) => event.payload!.kind)).toEqual(['ability', 'attack']);
         // stacks untouched by the generic path (still 2); duration 2→1
         expect(combat.snapshot().state.entities[0].statuses).toEqual([
-            { id: 'fear', stacks: 2, potency: 1, duration: 1 },
+            { id: 'wilt', stacks: 2, potency: 1, duration: 1 },
         ]);
-        // hero health: 20 − 1 (golem hit step 2) − 2 (fear tick 1 × 2 stacks, step 1) = 17
+        // hero health: 20 − 1 (golem hit step 2) − 2 (wilt tick 1 × 2 stacks, step 1) = 17
         expect(combat.snapshot().state.entities[0].health).toBe(17);
         combat.run(1); // hero's 2nd own turn: tick 2 + duration 1→0 ⇒ expired
         expect(combat.snapshot().state.entities[0].statuses).toEqual([]);
         expect(combat.snapshot().state.entities[0].health).toBe(15);
         expect(combat.events().filter((event) => event.type === 'status:expired')).toEqual([
-            { id: 17, step: 3, time: 2_000_000, type: 'status:expired', actor: 'hero', payload: { statusId: 'fear' } },
+            { id: 17, step: 3, time: 2_000_000, type: 'status:expired', actor: 'hero', payload: { statusId: 'wilt' } },
         ]);
     });
 
-    it('legacy fear WITHOUT a definition keeps the exact hardcoded semantics (silent stack decay + expired event)', () => {
+    it('an UNREGISTERED id is inert bookkeeping: no skip, no tick, no decay, no expiry (open vocabulary)', () => {
+        // 'haze' has NO definition in this battle and the engine ships no
+        // hardcoded per-id branches: the instance is plain data.
         const combat = combatOf(
-            duo({ statuses: [{ id: 'fear', stacks: 2 }] }),
+            duo({ statuses: [{ id: 'haze', stacks: 2 }] }),
             [{ id: 'cut', effects: [{ type: 'emit', message: 'cut' }] }],
             [castAlways('cut')],
         );
         combat.run(2);
-        expect(combat.snapshot().state.entities[0].statuses).toEqual([{ id: 'fear', stacks: 1, potency: 1 }]);
-        expect(combat.events().filter((event) => event.type === 'status:tick')).toEqual([]); // no tick without definition
-        combat.run(1); // hero's 2nd own turn (step 3): stacks 1 → 0 ⇒ expired
-        expect(combat.events().filter((event) => event.type === 'status:expired')).toEqual([
-            { id: 13, step: 3, time: 2_000_000, type: 'status:expired', actor: 'hero', payload: { statusId: 'fear' } },
-        ]);
+        // stacks untouched (no decay without a definition)
+        expect(combat.snapshot().state.entities[0].statuses).toEqual([{ id: 'haze', stacks: 2, potency: 1 }]);
+        expect(combat.events().filter((event) => event.type === 'status:tick')).toEqual([]);
+        combat.run(1); // step 3: still no expiry, ever
+        // no skip roll (no skipChancePerStack) — the hero acted every own turn
+        expect(combat.events().filter((event) => event.type === 'action').map((event) => event.payload!.kind)).toEqual(['ability', 'attack', 'ability']);
+        expect(combat.events().filter((event) => event.type === 'status:expired')).toEqual([]);
+        expect(combat.snapshot().state.entities[0].statuses).toEqual([{ id: 'haze', stacks: 2, potency: 1 }]);
     });
 });
 

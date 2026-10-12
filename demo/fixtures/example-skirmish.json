@@ -23,8 +23,11 @@
             { "id": "venom-strike", "name": "Venom Strike", "cost": 1, "cooldown": 2,
               "effects": [
                   { "type": "strike" },
-                  { "type": "apply-status", "target": "target", "status": "poison", "stacks": 2, "duration": 3, "potency": 2 }
+                  { "type": "apply-status", "target": "target", "status": "poisoned", "stacks": 2, "duration": 3, "potency": 2 }
               ] }
+        ],
+        "statuses": [
+            { "id": "poisoned", "name": "Poisoned", "decay": "duration", "tick": { "damage": 2 } }
         ]
     },
     "entities": [
@@ -38,7 +41,7 @@
           "abilities": ["venom-strike"] },
         { "id": "brute", "name": "Fang Brute", "team": "fang",
           "stats": { "health": 40, "strength": 10, "speed": 1 },
-          "statuses": [{ "id": "fear", "stacks": 1 }],
+          "statuses": [{ "id": "fearful", "stacks": 1 }],
           "equipment": { "weapons": [{ "id": "great-mace", "slot": "weapon-1" }],
                          "armour": [{ "id": "cult-mask", "slot": "head" }] } }
     ],
@@ -49,7 +52,7 @@
               "when": { "type": "all", "of": [
                   { "type": "stat", "ref": "target", "stat": "health", "op": "lte", "value": 12 },
                   { "type": "chance", "p": 0.3 } ] },
-              "effects": [ { "type": "apply-status", "target": "target", "status": "fear", "stacks": 1 } ] }
+              "effects": [ { "type": "apply-status", "target": "target", "status": "fearful", "stacks": 1 } ] }
         ]
     }
 }

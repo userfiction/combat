@@ -40,20 +40,21 @@ const minimalFfa = (): BattleDefinition => ({
 // ----------------------------------------------------------------------------
 
 describe('defaultStatusSeed (R1 registered defaults)', () => {
-    it('is the exact builtin ailment/buff set: aliases + bleeding/burned/blinded + beneficial buffs', () => {
+    it('is the exact builtin ailment/buff set: canonical trio + bleeding/burned/blinded + beneficial buffs', () => {
         expect(defaultStatusSeed.map((definition) => definition.id)).toEqual([
-            'fearful', 'poisoned', 'bleeding', 'burned', 'blinded', 'blessed', 'hasted',
+            'fearful', 'poisoned', 'stunned', 'bleeding', 'burned', 'blinded', 'blessed', 'hasted',
         ]);
         expect(defaultStatusSeed[0]).toEqual({ id: 'fearful', name: 'Fearful', decay: 'stacks', skipChancePerStack: 0.25 });
         expect(defaultStatusSeed[1]).toEqual({ id: 'poisoned', name: 'Poisoned', decay: 'duration', tick: { damage: 1 } });
-        expect(defaultStatusSeed[2]).toEqual({ id: 'bleeding', name: 'Bleeding', decay: 'duration', tick: { damage: 2 } });
-        expect(defaultStatusSeed[3]).toEqual({ id: 'burned', name: 'Burned', decay: 'duration', tick: { damage: 3 } });
-        expect(defaultStatusSeed[4]).toEqual({ id: 'blinded', name: 'Blinded', decay: 'duration', modifiers: { precision: -2 } });
-        expect(defaultStatusSeed[5]).toEqual({ id: 'blessed', name: 'Blessed', decay: 'duration', modifiers: { defense: 2, evasion: 1 } });
-        expect(defaultStatusSeed[6]).toEqual({ id: 'hasted', name: 'Hasted', decay: 'duration', modifiers: { speed: 1 } });
+        expect(defaultStatusSeed[2]).toEqual({ id: 'stunned', name: 'Stunned', decay: 'duration', skipChancePerStack: 1 });
+        expect(defaultStatusSeed[3]).toEqual({ id: 'bleeding', name: 'Bleeding', decay: 'duration', tick: { damage: 2 } });
+        expect(defaultStatusSeed[4]).toEqual({ id: 'burned', name: 'Burned', decay: 'duration', tick: { damage: 3 } });
+        expect(defaultStatusSeed[5]).toEqual({ id: 'blinded', name: 'Blinded', decay: 'duration', modifiers: { precision: -2 } });
+        expect(defaultStatusSeed[6]).toEqual({ id: 'blessed', name: 'Blessed', decay: 'duration', modifiers: { defense: 2, evasion: 1 } });
+        expect(defaultStatusSeed[7]).toEqual({ id: 'hasted', name: 'Hasted', decay: 'duration', modifiers: { speed: 1 } });
     });
 
-    it('exposes the closed T2 vocabularies verbatim (legacy trio ids are NOT registered defaults)', () => {
+    it('exposes the closed T2 vocabularies verbatim (the old trio ids are NOT registered defaults — canonical ids only)', () => {
         expect(BODY_PARTS).toEqual([
             'left-arm', 'right-arm', 'left-leg', 'right-leg',
             'left-eye', 'right-eye', 'left-ear', 'right-ear', 'nose',
@@ -75,11 +76,11 @@ describe('mergeStatusCatalog (R1 patch semantics)', () => {
             { id: 'screaming', decay: 'stacks', skipChancePerStack: 1 },  // new id
         ]);
         expect(merged.map((definition) => definition.id)).toEqual([
-            'fearful', 'poisoned', 'bleeding', 'burned', 'blinded', 'blessed', 'hasted', 'screaming',
+            'fearful', 'poisoned', 'stunned', 'bleeding', 'burned', 'blinded', 'blessed', 'hasted', 'screaming',
         ]);
         // patched bleeding keeps the seed's decay, overrides the tick
-        expect(merged[2]).toEqual({ id: 'bleeding', name: 'Bleeding', decay: 'duration', tick: { damage: 7 } });
-        expect(merged[7]).toEqual({ id: 'screaming', decay: 'stacks', skipChancePerStack: 1 });
+        expect(merged[3]).toEqual({ id: 'bleeding', name: 'Bleeding', decay: 'duration', tick: { damage: 7 } });
+        expect(merged[8]).toEqual({ id: 'screaming', decay: 'stacks', skipChancePerStack: 1 });
     });
 
     it('later patches override earlier ones for the same id; undefined never erases', () => {

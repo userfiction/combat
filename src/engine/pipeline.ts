@@ -67,19 +67,23 @@ import {
     defaultOrder,
     pickNext,
     rescheduleEntry,
+    upsertEntry,
 } from '../runtime/scheduler';
 import type { CandidateLookup, IntervalFn, OrderFn } from '../runtime/scheduler';
 import {
     addInjury,
     addStatModifier,
+    adminSetStatus,
     applyStatus,
     ARMOUR_SLOTS,
     availableArmsOf,
     breakGear,
     canPayResourceCosts,
+    clearSlotGear,
     damageEntity,
     damageGear,
     decrementStatModifiers,
+    deepCopy,
     dropScheduleEntries,
     entityEffectiveStats,
     entityViewOf,
@@ -93,6 +97,7 @@ import {
     removeGear,
     removeStatus,
     restoreFrom,
+    setSlotGear,
     snapshotStateOf,
     stateViewOf,
 } from '../runtime/state';
@@ -104,19 +109,43 @@ import type { EffectAdapter, InterpreterDeps } from '../behavior/effects';
 import type { EventLog } from '../runtime/events';
 import type { PluginRegistry, PluginRegistryRuntime } from '../behavior/plugins';
 import {
+    BODY_PARTS,
+    CombatValidationError,
     COMBAT_SCHEMA_VERSION,
     CRIT_MULTIPLIER,
     DAMAGE_TYPES,
     DEFAULT_ABILITY_COST,
     DEFAULT_ACTION_COST,
+    MAX_DEFENSE,
+    MAX_EVASION,
+    MAX_GEAR_DURABILITY,
+    MAX_HEALTH,
+    MAX_PRECISION,
+    MAX_RESOURCE_VALUE,
+    MAX_SPEED,
+    MAX_STATUS_STACKS,
+    MAX_STRENGTH,
     MAX_STRIKE_DEPTH,
+    MIN_DEFENSE,
+    MIN_EVASION,
+    MIN_GEAR_DURABILITY,
+    MIN_HEALTH,
     MIN_INTERVAL_US,
+    MIN_PRECISION,
+    MIN_RESOURCE_VALUE,
+    MIN_SPEED,
+    MIN_STATUS_DURATION,
+    MIN_STATUS_POTENCY,
+    MIN_STRENGTH,
+    SLOTS,
+    STAT_KEYS,
 } from '../contract/types';
 import type {
     AbilityDefinition,
     ActionSelection,
     BattleDefinition,
     BodyPart,
+    CombatantEdit,
     EffectDescriptor,
     EntityView,
     EquipmentEntry,
@@ -131,10 +160,14 @@ import type {
     SchedulerIntervalArgs,
     SchedulerOrderArgs,
     SingleHookId,
+    Slot,
+    StatBlock,
+    StatKey,
     StatusDefinition,
     StepContext,
     StepContextRefs,
 } from '../contract/types';
+import { isValidId } from '../contract/ids';
 import type { RngController } from '../runtime/rng';
 
 // ----------------------------------------------------------------------------
@@ -174,6 +207,14 @@ export interface TurnRunner {
     decideAtStepZero(): void;
     // one scheduled turn + cascade; false ⇒ no progress (decision 9)
     step(): boolean;
+    // T3 live edit: validate + atomically patch one combatant of the RUNNING
+    // battle between turns (types.ts CombatantEdit contract). Synchronous;
+    // throws CombatValidationError (collect-all field errors, terminal or
+    // reentrant edit, or a rolled-back plugin-hook throw). Never advances
+    // step/virtualTime and never draws the default RNG path; on success
+    // exactly one 'combatant:edited' event is appended with existing event
+    // ids preserved.
+    editCombatant(edit: CombatantEdit): void;
     // registry runtime seam (plugins.ts): adapter + fresh view provider
     runtime(): PluginRegistryRuntime;
 }
@@ -912,8 +953,8 @@ export const createTurnRunner = (cfg: TurnRunnerConfig): TurnRunner => {
         // (deterministic bookkeeping; damage on a dead entity applies 0).
         // T2 (R1): the resolved status registry lookup rides along so
         // definition-driven statuses (tick/decay/skip) are processed by the
-        // same default; the legacy trio keeps its hardcoded semantics for
-        // ids without a definition.
+        // same default; ids WITHOUT a definition are inert bookkeeping (no
+        // hardcoded per-id branch exists anywhere).
         if (cfg.builtinRules) applyStatusTurnEndDefault(phaseApi, { entity: entityViewOf(findEntity(state, currentActorId)) }, statusOf);
         runChain('status:turn-end', { entity: entityViewOf(findEntity(state, currentActorId)) });
 
@@ -984,6 +1025,30 @@ export const createTurnRunner = (cfg: TurnRunnerConfig): TurnRunner => {
 
     const step = (): boolean => {
         if (state.terminal) return true; // idempotent (D5g) — engine guards too
+        // T3 edit-flow hole closure: an edit can leave ALL combatants dead
+        // (schedule empty, non-terminal — deaths inside a step always reach
+        // the phase-15 decide). Instead of the declared no-progress return,
+        // give outcome:decide ONE pure-observation evaluation at the CURRENT
+        // step/time so the next simulate() RESOLVES the battle (e.g. the
+        // default decide stamps the mutual-destruction draw) instead of
+        // returning no-progress forever. A verdict stamps terminal + the
+        // single outcome event; no handler (or null verdict) keeps the
+        // honest decision-9 return (builtinRules:false keeps its escape).
+        if (state.schedule.length === 0) {
+            const txn = { snap: snapshotStateOf(state), marker: cfg.log.marker() };
+            stepEvents = 0;
+            try {
+                const verdict = decide();
+                if (!verdict) return false; // no progress, nothing emitted
+                stampOutcome(verdict);
+                state.rng = cfg.rng.exportState();
+                cfg.log.trim(state.step, state.virtualTime);
+                return true;
+            } catch (error) {
+                applyFault(error, txn, txn.snap.step); // no turn consumed
+                return true;
+            }
+        }
         const txn = { snap: snapshotStateOf(state), marker: cfg.log.marker() };
         stepEvents = 0;
         try {
@@ -1000,6 +1065,507 @@ export const createTurnRunner = (cfg: TurnRunnerConfig): TurnRunner => {
             applyFault(error, txn, txn.snap.step + 1);
             return true;
         }
+    };
+
+    // ----------------------------------------------------------------------------
+    // T3 live edit — validated atomic combatant patch (types.ts CombatantEdit)
+    // ----------------------------------------------------------------------------
+    // Validation mirrors validation.ts's collect-all stance (exact
+    // `<path>: <problem>` messages, D13 bounds imported from the contract)
+    // but runs against LIVE state + the RESOLVED catalogs, with edits
+    // PROJECTED onto the current equipment/injuries before cross-field rules
+    // (hands budget, two-handed conflicts, arm anatomy) are judged — so a
+    // multi-domain edit is validated as the coherent end state it will
+    // produce, never against intermediate half-states.
+    // ----------------------------------------------------------------------------
+
+    // Per-stat validation bounds (mirrors validateStats: health is the only
+    // integer-bounded stat; the rest are finite-number bounded).
+    const STAT_EDIT_BOUNDS: Record<StatKey, { min: number; max: number; integer: boolean }> = {
+        health: { min: MIN_HEALTH, max: MAX_HEALTH, integer: true },
+        strength: { min: MIN_STRENGTH, max: MAX_STRENGTH, integer: false },
+        speed: { min: MIN_SPEED, max: MAX_SPEED, integer: false },
+        defense: { min: MIN_DEFENSE, max: MAX_DEFENSE, integer: false },
+        precision: { min: MIN_PRECISION, max: MAX_PRECISION, integer: false },
+        evasion: { min: MIN_EVASION, max: MAX_EVASION, integer: false },
+    };
+    // D5e hands budget surface (same slot set as validation.ts).
+    const HAND_SLOTS: readonly Slot[] = ['weapon-1', 'weapon-2', 'shield'];
+    const TWO_HANDED = 2;
+
+    const editCombatant = (raw: CombatantEdit): void => {
+        // reentrancy: an edit invoked from inside an executing hook (plugin
+        // code mid-step) would mutate state under the D7 transaction —
+        // rejected outright (declared contract).
+        if (activeHook !== undefined || activePluginId !== undefined) {
+            throw new CombatValidationError(['edit: reentrant edit inside an executing hook is rejected']);
+        }
+        // terminal battles are immutable (reset/rebuild is the only path back)
+        if (state.terminal !== null) {
+            throw new CombatValidationError(['edit: battle is terminal']);
+        }
+        if (!isPlainObject(raw)) {
+            throw new CombatValidationError(['edit: expected a plain object']);
+        }
+        // id gate: every later check projects against the entity's live state
+        const entityId = raw.entityId;
+        if (typeof entityId !== 'string' || !isValidId(entityId) || !state.entities.some((candidate) => candidate.id === entityId)) {
+            throw new CombatValidationError([`edit.entityId: unknown entity id '${String(entityId)}'`]);
+        }
+        const entity = findEntity(state, entityId);
+
+        // ---- collect-all validation (never mutates) ----
+        const errors: string[] = [];
+
+        // health: finite required; out-of-range values are CLAMPED at
+        // mutation (never rejected) — admin semantics documented in types.ts.
+        if (raw.health !== undefined && (typeof raw.health !== 'number' || !Number.isFinite(raw.health))) {
+            errors.push('edit.health: must be a finite number');
+        }
+        // baseStats.health bounds mirror validateStats (integer 1..100 000 —
+        // maxHealth can never drop a living entity to 0 through the clamp)
+
+        // baseStats: keys ⊆ STAT_KEYS, each within its D3/D13 bounds
+        if (raw.baseStats !== undefined) {
+            if (!isPlainObject(raw.baseStats)) {
+                errors.push('edit.baseStats: expected a plain object');
+            } else {
+                const record = raw.baseStats as Record<string, unknown>;
+                for (const key of Object.keys(record)) {
+                    const path = `edit.baseStats['${key}']`;
+                    if (!STAT_KEYS.includes(key as StatKey)) {
+                        errors.push(`${path}: unknown stat key`);
+                        continue;
+                    }
+                    const value = record[key];
+                    const bounds = STAT_EDIT_BOUNDS[key as StatKey];
+                    const valid = bounds.integer
+                        ? typeof value === 'number' && Number.isInteger(value) && value >= bounds.min && value <= bounds.max
+                        : typeof value === 'number' && Number.isFinite(value) && value >= bounds.min && value <= bounds.max;
+                    if (!valid) {
+                        errors.push(
+                            bounds.integer
+                                ? `${path}: must be an integer between ${bounds.min} and ${bounds.max}`
+                                : `${path}: must be a finite number between ${bounds.min} and ${bounds.max}`,
+                        );
+                    }
+                }
+            }
+        }
+
+        // injuries FIRST: the projected anatomy feeds the gear cross-field
+        // rules below (arm-dependent hand gear).
+        const injuriesAdd: BodyPart[] = [];
+        const injuriesRemove: BodyPart[] = [];
+        if (raw.injuries !== undefined) {
+            if (!isPlainObject(raw.injuries)) {
+                errors.push('edit.injuries: expected a plain object');
+            } else {
+                const record = raw.injuries as Record<string, unknown>;
+                const bodyPartValues = BODY_PARTS.map((part) => `'${part}'`).join(', ');
+                for (const direction of ['add', 'remove'] as const) {
+                    const list = record[direction];
+                    if (list === undefined) continue;
+                    if (!Array.isArray(list)) {
+                        errors.push(`edit.injuries.${direction}: must be an array`);
+                        continue;
+                    }
+                    const seen = new Set<string>();
+                    list.forEach((part, index) => {
+                        const path = `edit.injuries.${direction}[${index}]`;
+                        if (typeof part !== 'string' || !BODY_PARTS.includes(part as BodyPart)) {
+                            errors.push(`${path}: must be one of ${bodyPartValues}`);
+                            return;
+                        }
+                        if (seen.has(part)) {
+                            errors.push(`${path}: duplicate body part '${part}'`);
+                            return;
+                        }
+                        seen.add(part);
+                        const currentlyMissing = (entity.injuries ?? []).includes(part as BodyPart);
+                        if (direction === 'add') {
+                            if (currentlyMissing) errors.push(`${path}: '${part}' is already missing`);
+                            else injuriesAdd.push(part as BodyPart);
+                        } else {
+                            if (!currentlyMissing) errors.push(`${path}: '${part}' is not missing`);
+                            else injuriesRemove.push(part as BodyPart);
+                        }
+                    });
+                }
+                for (const part of injuriesAdd) {
+                    if (injuriesRemove.includes(part)) {
+                        errors.push(`edit.injuries: '${part}' listed in both add and remove`);
+                    }
+                }
+            }
+        }
+        // PROJECTED anatomy: current missing parts ∪ add − remove (R2)
+        const projectedInjuries: BodyPart[] = (() => {
+            const parts = new Set<BodyPart>(entity.injuries ?? []);
+            for (const part of injuriesAdd) parts.add(part);
+            for (const part of injuriesRemove) parts.delete(part);
+            return [...parts];
+        })();
+
+        // gear: per-entry catalog/kind/slot/durability checks. The D5e
+        // invariants (hands budget, two-handed conflicts, anatomy) run over
+        // the PROJECTED loadout below — whenever EITHER gear or injuries is
+        // touched, so an injuries-only edit still respects the CURRENT gear.
+        if (raw.gear !== undefined) {
+            if (!Array.isArray(raw.gear)) {
+                errors.push('edit.gear: must be an array');
+            } else {
+                const editedSlots = new Set<Slot>();
+                raw.gear.forEach((entry, index) => {
+                    const path = `edit.gear[${index}]`;
+                    if (!isPlainObject(entry)) {
+                        errors.push(`${path}: expected a plain object`);
+                        return;
+                    }
+                    const slot = entry['slot'];
+                    if (typeof slot !== 'string' || !SLOTS.includes(slot as Slot)) {
+                        errors.push(`${path}.slot: must be one of ${SLOTS.map((candidate) => `'${candidate}'`).join(', ')}`);
+                        return;
+                    }
+                    if (editedSlots.has(slot as Slot)) {
+                        errors.push(`${path}.slot: duplicate slot edit for '${slot}'`);
+                        return;
+                    }
+                    editedSlots.add(slot as Slot);
+                    const id = entry['id'];
+                    if (id === null) {
+                        // clear: durability is meaningless on a cleared slot
+                        if (entry['durability'] !== undefined) errors.push(`${path}.durability: must not be present when id is null`);
+                        if (!entity.equipment.some((piece) => piece.slot === slot)) errors.push(`${path}: slot '${slot}' is already empty`);
+                        return;
+                    }
+                    if (typeof id !== 'string' || !isValidId(id)) {
+                        errors.push(`${path}.id: must be a valid id string or null`);
+                        return;
+                    }
+                    const definition = cfg.gear(id);
+                    if (!definition) {
+                        errors.push(`${path}.id: unknown gear id '${id}'`);
+                        return;
+                    }
+                    // D9 kind/slot agreement (mirrors validateEquipment)
+                    if (definition.kind === 'weapon' && slot !== 'weapon-1' && slot !== 'weapon-2') {
+                        errors.push(`${path}.slot: gear '${id}' is a weapon and must go in 'weapon-1' or 'weapon-2'`);
+                    }
+                    if (definition.kind === 'armour' && slot !== definition.slot) {
+                        errors.push(`${path}.slot: gear '${id}' occupies slot '${definition.slot}', not '${slot}'`);
+                    }
+                    if (entry['durability'] !== undefined) {
+                        const value = entry['durability'];
+                        if (typeof value !== 'number' || !Number.isInteger(value) || value < MIN_GEAR_DURABILITY || value > MAX_GEAR_DURABILITY) {
+                            errors.push(`${path}.durability: must be an integer between ${MIN_GEAR_DURABILITY} and ${MAX_GEAR_DURABILITY}`);
+                        }
+                    }
+                });
+            }
+        }
+
+        // D5e invariants over the PROJECTED loadout × PROJECTED anatomy —
+        // runs when either domain is touched (the gear-edit entries are
+        // already per-entry validated above; projection here is shape-safe).
+        if (raw.gear !== undefined || raw.injuries !== undefined) {
+            // projected slot → occupant (current loadout first; edits
+            // overwrite by slot or clear it)
+            const projected = new Map<Slot, { gearId: string; durability: number; handedness: number; slot: Slot }>();
+            for (const piece of entity.equipment) {
+                const definition = cfg.gear(piece.gearId);
+                projected.set(piece.slot, { gearId: piece.gearId, durability: piece.durability, handedness: definition?.handedness ?? 1, slot: piece.slot });
+            }
+            for (const entry of raw.gear ?? []) {
+                if (!isPlainObject(entry)) continue;
+                const slot = entry['slot'];
+                if (typeof slot !== 'string' || !SLOTS.includes(slot as Slot)) continue;
+                const id = entry['id'];
+                if (id === null) {
+                    projected.delete(slot as Slot);
+                    continue;
+                }
+                const definition = typeof id === 'string' ? cfg.gear(id) : undefined;
+                if (!definition) continue;
+                const durability = entry['durability'] !== undefined && typeof entry['durability'] === 'number' ? entry['durability'] : definition.durability;
+                projected.set(slot as Slot, { gearId: id, durability, handedness: definition.handedness, slot: slot as Slot });
+            }
+
+            // D5e hands budget: handedness of weapon-1 + weapon-2 + shield ≤ 2
+            let handsUsed = 0;
+            let twoHanded: { gearId: string; slot: Slot } | undefined;
+            for (const piece of projected.values()) {
+                if (HAND_SLOTS.includes(piece.slot)) handsUsed += piece.handedness;
+                if (piece.handedness === TWO_HANDED && (piece.slot === 'weapon-1' || piece.slot === 'weapon-2')) {
+                    twoHanded = { gearId: piece.gearId, slot: piece.slot };
+                }
+            }
+            if (handsUsed > 2) {
+                errors.push(`edit.gear: hands budget exceeded in the projected loadout (${handsUsed} > 2)`);
+            }
+            if (twoHanded !== undefined) {
+                const conflict = [...projected.values()].some(
+                    (piece) => piece.slot !== twoHanded!.slot && (piece.slot === 'weapon-2' || piece.slot === 'shield'),
+                );
+                if (conflict) errors.push(`edit.gear: two-handed gear '${twoHanded.gearId}' forbids 'weapon-2' and 'shield' occupants`);
+            }
+
+            // anatomy coherence over the PROJECTED injuries (R2 — mirrors
+            // validateEquipment): every hand-held piece needs ≥ 1 arm,
+            // two-handed pieces need BOTH.
+            const armsAvailable = 2 - projectedInjuries.filter((part) => part === 'left-arm' || part === 'right-arm').length;
+            for (const piece of projected.values()) {
+                if (!HAND_SLOTS.includes(piece.slot)) continue;
+                if (armsAvailable === 0) {
+                    errors.push(`edit.gear: '${piece.gearId}' in slot '${piece.slot}' requires an arm but both arms are missing`);
+                } else if (armsAvailable === 1 && piece.handedness === TWO_HANDED) {
+                    errors.push(`edit.gear: two-handed gear '${piece.gearId}' requires two available arms (one is missing)`);
+                }
+            }
+        }
+
+        // statuses: per-op field/bounds checks against live instances
+        if (raw.statuses !== undefined) {
+            if (!Array.isArray(raw.statuses)) {
+                errors.push('edit.statuses: must be an array');
+            } else {
+                const seen = new Set<string>();
+                raw.statuses.forEach((entry, index) => {
+                    const path = `edit.statuses[${index}]`;
+                    if (!isPlainObject(entry)) {
+                        errors.push(`${path}: expected a plain object`);
+                        return;
+                    }
+                    const id = entry['id'];
+                    if (typeof id !== 'string' || !isValidId(id)) {
+                        errors.push(`${path}.id: must match /^[a-z0-9][a-z0-9-]*$/`);
+                        return;
+                    }
+                    if (seen.has(id)) {
+                        errors.push(`${path}.id: duplicate status edit for '${id}'`);
+                        return;
+                    }
+                    seen.add(id);
+                    if (entry['op'] !== 'set' && entry['op'] !== 'remove') {
+                        errors.push(`${path}.op: must be 'set' or 'remove'`);
+                        return;
+                    }
+                    if (entry['op'] === 'remove') {
+                        for (const field of ['stacks', 'duration', 'potency'] as const) {
+                            if (entry[field] !== undefined) errors.push(`${path}.${field}: must not be present on op 'remove'`);
+                        }
+                        if (!entity.statuses.some((status) => status.id === id)) {
+                            errors.push(`${path}: status '${id}' is not present`);
+                        }
+                        return;
+                    }
+                    // op 'set' — admin bounds mirror the D3/D13 instance rules
+                    const stacks = entry['stacks'];
+                    if (stacks !== undefined && (typeof stacks !== 'number' || !Number.isInteger(stacks) || stacks < 1 || stacks > MAX_STATUS_STACKS)) {
+                        errors.push(`${path}.stacks: must be an integer between 1 and ${MAX_STATUS_STACKS}`);
+                    }
+                    const duration = entry['duration'];
+                    if (duration !== undefined && (typeof duration !== 'number' || !Number.isInteger(duration) || duration < MIN_STATUS_DURATION)) {
+                        errors.push(`${path}.duration: must be an integer >= ${MIN_STATUS_DURATION}`);
+                    }
+                    const potency = entry['potency'];
+                    if (potency !== undefined && (typeof potency !== 'number' || !Number.isInteger(potency) || potency < MIN_STATUS_POTENCY)) {
+                        errors.push(`${path}.potency: must be an integer >= ${MIN_STATUS_POTENCY}`);
+                    }
+                });
+            }
+        }
+
+        // resources: stamina/mana only (the energy alias is initial-input
+        // only, never an edit contract — declared in types.ts); null removes
+        // the pool, a plain object EXACTLY replaces it.
+        if (raw.resources !== undefined) {
+            if (!isPlainObject(raw.resources)) {
+                errors.push('edit.resources: expected a plain object');
+            } else {
+                for (const key of Object.keys(raw.resources)) {
+                    const path = `edit.resources['${key}']`;
+                    if (key === 'energy') {
+                        errors.push(`${path}: the energy alias is initial-input only — edit 'stamina' directly`);
+                        continue;
+                    }
+                    if (key !== 'stamina' && key !== 'mana') {
+                        errors.push(`${path}: unknown resource pool (expected stamina or mana)`);
+                        continue;
+                    }
+                    const value = raw.resources[key];
+                    if (value === null) continue; // removal is always valid
+                    if (!isPlainObject(value)) {
+                        errors.push(`${path}: expected a {current, max} object or null`);
+                        continue;
+                    }
+                    const current = value['current'];
+                    const max = value['max'];
+                    if (typeof current !== 'number' || !Number.isInteger(current) || current < MIN_RESOURCE_VALUE || current > MAX_RESOURCE_VALUE) {
+                        errors.push(`${path}.current: must be an integer between ${MIN_RESOURCE_VALUE} and ${MAX_RESOURCE_VALUE}`);
+                    }
+                    if (typeof max !== 'number' || !Number.isInteger(max) || max < MIN_RESOURCE_VALUE || max > MAX_RESOURCE_VALUE) {
+                        errors.push(`${path}.max: must be an integer between ${MIN_RESOURCE_VALUE} and ${MAX_RESOURCE_VALUE}`);
+                    }
+                    if (typeof current === 'number' && typeof max === 'number' && current > max) {
+                        errors.push(`${path}.current: must not exceed max (${current} > ${max})`);
+                    }
+                }
+            }
+        }
+
+        if (errors.length > 0) throw new CombatValidationError(errors);
+
+        // ---- atomic mutation with exact rollback (D7 machinery reused:
+        // snapshot + log marker ⇒ state/RNG/log restored bit-for-bit on any
+        // throw, e.g. a replaced scheduler:interval hook faulting during
+        // revival/reschedule math) ----
+        const speedBefore = effSpeed(entityId);
+        const healthBefore = entity.health;
+        const txn = { snap: snapshotStateOf(state), marker: cfg.log.marker() };
+        try {
+            // 1. baseStats merge; baseStats.health IS maxHealth (types.ts)
+            const baseStatsEdit = raw.baseStats as Partial<StatBlock> | undefined;
+            if (baseStatsEdit !== undefined) {
+                for (const [key, value] of Object.entries(baseStatsEdit)) {
+                    (entity.baseStats as Record<string, number>)[key] = value as number;
+                }
+                entity.maxHealth = entity.baseStats.health;
+                // health NOT edited + max lowered ⇒ clamp coherently (the
+                // floor is 1 — baseStats.health ≥ 1 can never kill here)
+                if (raw.health === undefined && entity.health > entity.maxHealth) {
+                    entity.health = entity.maxHealth;
+                }
+            }
+            // 2. statuses — op 'set' is the DIRECT ADMIN SET (no resistance,
+            // no stack-cap refresh math; definition modifiers materialized
+            // when the id is registered; unregistered ids stay custom data)
+            for (const statusEdit of raw.statuses ?? []) {
+                if (statusEdit.op === 'remove') {
+                    removeStatus(state, entityId, statusEdit.id);
+                } else {
+                    adminSetStatus(
+                        state,
+                        entityId,
+                        {
+                            id: statusEdit.id,
+                            ...(statusEdit.stacks !== undefined ? { stacks: statusEdit.stacks } : {}),
+                            ...(statusEdit.duration !== undefined ? { duration: statusEdit.duration } : {}),
+                            ...(statusEdit.potency !== undefined ? { potency: statusEdit.potency } : {}),
+                        },
+                        statusOf(statusEdit.id),
+                    );
+                }
+            }
+            // 3. injuries — validated add/remove (the helpers keep the
+            // additive-optional `injuries` field shape)
+            for (const part of injuriesAdd) addInjury(state, entityId, part);
+            for (const part of injuriesRemove) healInjury(state, entityId, part);
+            // 4. resources — exact pool replace / removal (empty object gone)
+            for (const [key, value] of Object.entries(raw.resources ?? {})) {
+                if (value === null) {
+                    if (entity.resources !== undefined) {
+                        delete entity.resources[key as ResourceKey];
+                        if (Object.keys(entity.resources).length === 0) delete entity.resources;
+                    }
+                } else if (value !== undefined) {
+                    // undefined never reaches here: validation rejects it
+                    // ("expected a {current, max} object or null")
+                    if (entity.resources === undefined) entity.resources = {};
+                    entity.resources[key as ResourceKey] = { current: value.current, max: value.max };
+                }
+            }
+            // 5. gear — clear or replace-in-place per slot (validated)
+            for (const gearEdit of raw.gear ?? []) {
+                if (gearEdit.id === null) {
+                    clearSlotGear(state, entityId, gearEdit.slot);
+                } else {
+                    setSlotGear(state, entityId, { gearId: gearEdit.id, slot: gearEdit.slot, durability: gearEdit.durability ?? (cfg.gear(gearEdit.id) as GearDefinition).durability });
+                }
+            }
+            // 6. health + living/schedule coherence (AFTER the speed-relevant
+            // domains so a revival entry uses the FINAL effective speed):
+            // 0 ⇒ death (schedule dropped, D4e); > 0 on a dead entity ⇒
+            // revival with the next entry at now + default interval through
+            // the ACTIVE scheduler:interval hook.
+            let revived = false;
+            if (raw.health !== undefined) {
+                const health = Math.max(0, Math.min(entity.maxHealth, raw.health));
+                entity.health = health;
+                const wasLiving = entity.living;
+                entity.living = health > 0;
+                if (wasLiving && !entity.living) {
+                    dropScheduleEntries(state, entityId); // death removes schedule
+                } else if (!wasLiving && entity.living) {
+                    upsertEntry(state.schedule, entityId, state.virtualTime + intervalFn({ entityId, actionCost: DEFAULT_ACTION_COST, effectiveSpeed: effSpeed(entityId) }));
+                    revived = true;
+                }
+            }
+            // 7. derived stats + D4e speed sync: the edited entity is never
+            // the current actor between turns, so its own pending entry
+            // follows the proportional-remaining-work rule when derived
+            // speed moved (base stats, status modifiers, leg injuries). A
+            // freshly revived entry already carries the final speed; an
+            // unchanged speed NEVER recomputes the entry (exactness — a
+            // replaced interval hook's rounding curve must not re-fire).
+            entity.stats = entityEffectiveStats(entity);
+            const speedAfter = effSpeed(entityId);
+            if (!revived && speedAfter !== speedBefore) {
+                rescheduleEntry(state.schedule, entityId, state.virtualTime, speedBefore, speedAfter, intervalFn);
+            }
+        } catch (error) {
+            // exact rollback: state + RNG + log marker, then the declared
+            // CombatValidationError contract for ANY mutation-phase throw
+            state = restoreStateFrom(txn.snap);
+            cfg.rng.restoreState(txn.snap.rng);
+            cfg.log.rollback(txn.marker);
+            throw new CombatValidationError([`edit: ${messageOf(error)}`]);
+        }
+
+        // ---- the single edit event (D11): no step increment, existing ids
+        // preserved; payload carries a meaningful per-domain summary ----
+        const domains: string[] = [];
+        const payload: Record<string, unknown> = { entityId };
+        if (raw.health !== undefined) {
+            domains.push('health');
+            payload.health = { from: healthBefore, to: entity.health, max: entity.maxHealth, living: entity.living };
+        }
+        if (raw.baseStats !== undefined) {
+            domains.push('baseStats');
+            payload.baseStats = deepCopy(entity.baseStats);
+        }
+        if ((raw.statuses?.length ?? 0) > 0) {
+            domains.push('statuses');
+            payload.statuses = (raw.statuses ?? []).map((statusEdit) => {
+                if (statusEdit.op === 'remove') return { id: statusEdit.id, op: 'remove' };
+                const instance = entity.statuses.find((status) => status.id === statusEdit.id);
+                return instance
+                    ? { id: statusEdit.id, op: 'set', stacks: instance.stacks, duration: instance.duration, potency: instance.potency }
+                    : { id: statusEdit.id, op: 'set' };
+            });
+        }
+        if ((injuriesAdd.length > 0 || injuriesRemove.length > 0)) {
+            domains.push('injuries');
+            payload.injuries = { added: [...injuriesAdd], removed: [...injuriesRemove], missing: deepCopy(entity.injuries ?? []) };
+        }
+        if (raw.resources !== undefined) {
+            domains.push('resources');
+            payload.resources = Object.fromEntries(
+                Object.keys(raw.resources).map((key) => [key, entity.resources?.[key as ResourceKey] ? deepCopy(entity.resources![key as ResourceKey]) : null]),
+            );
+        }
+        if ((raw.gear?.length ?? 0) > 0) {
+            domains.push('gear');
+            payload.gear = (raw.gear ?? []).map((gearEdit) => {
+                const occupant = entity.equipment.find((piece) => piece.slot === gearEdit.slot);
+                return occupant
+                    ? { slot: gearEdit.slot, id: occupant.gearId, durability: occupant.durability }
+                    : { slot: gearEdit.slot, id: null };
+            });
+        }
+        payload.domains = domains;
+        cfg.log.emit({ type: 'combatant:edited', actor: entityId, payload }, state.step, state.virtualTime);
+        cfg.log.trim(state.step, state.virtualTime);
     };
 
     return {
@@ -1039,6 +1605,9 @@ export const createTurnRunner = (cfg: TurnRunnerConfig): TurnRunner => {
             }
         },
         step,
+        // T3 live edit — see the editCombatant block above and the
+        // TurnRunner interface comment.
+        editCombatant,
         runtime: () => ({ adapter, view: () => stateViewOf(state) }),
     };
 };

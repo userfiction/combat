@@ -44,14 +44,25 @@ const example: BattleDefinition = {
                 name: 'Venom Strike',
                 cost: 1,
                 cooldown: 2,
-                effects: [{ type: 'strike' }, { type: 'apply-status', target: 'target', status: 'poison', stacks: 2, duration: 3, potency: 2 }],
+                effects: [{ type: 'strike' }, { type: 'apply-status', target: 'target', status: 'poisoned', stacks: 2, duration: 3, potency: 2 }],
             },
+        ],
+        // T2 (R1) canonical statuses: the engine has NO hardcoded per-id
+        // branches, so the §7 battle's statuses are the canonical seed ids.
+        // The 'poisoned' patch overrides the seed tick to 2 — tick damage
+        // 2 × stacks 2 = 4/turn preserves the §7 math exactly (potency on
+        // the instance is bookkeeping only); 'fearful' needs NO definition —
+        // the builtin seed already ships decay 'stacks' with
+        // skipChancePerStack 0.25, so the brute's starting instance and the
+        // terror-edges contribution reference the seed id directly.
+        statuses: [
+            { id: 'poisoned', name: 'Poisoned', decay: 'duration', tick: { damage: 2 } },
         ],
     },
     entities: [
         { id: 'knight', name: 'Ser Gallant', team: 'crown', stats: { health: 30, strength: 8, speed: 1, defense: 3 }, equipment: { weapons: [{ id: 'longsword', slot: 'weapon-1' }], armour: [{ id: 'warden-mail', slot: 'body' }] } },
         { id: 'rogue', name: 'Whisper', team: 'crown', stats: { health: 20, strength: 5, speed: 2, precision: 2, evasion: 4 }, equipment: { weapons: [{ id: 'cult-dagger', slot: 'weapon-1' }] }, abilities: ['venom-strike'] },
-        { id: 'brute', name: 'Fang Brute', team: 'fang', stats: { health: 40, strength: 10, speed: 1 }, statuses: [{ id: 'fear', stacks: 1 }], equipment: { weapons: [{ id: 'great-mace', slot: 'weapon-1' }], armour: [{ id: 'cult-mask', slot: 'head' }] } },
+        { id: 'brute', name: 'Fang Brute', team: 'fang', stats: { health: 40, strength: 10, speed: 1 }, statuses: [{ id: 'fearful', stacks: 1 }], equipment: { weapons: [{ id: 'great-mace', slot: 'weapon-1' }], armour: [{ id: 'cult-mask', slot: 'head' }] } },
     ],
     startingConditions: { seed: 7, config: { maxSteps: 5000 } },
     rules: {
@@ -60,7 +71,7 @@ const example: BattleDefinition = {
                 id: 'terror-edges',
                 hook: 'damage:post',
                 when: { type: 'all', of: [{ type: 'stat', ref: 'target', stat: 'health', op: 'lte', value: 12 }, { type: 'chance', p: 0.3 }] },
-                effects: [{ type: 'apply-status', target: 'target', status: 'fear', stacks: 1 }],
+                effects: [{ type: 'apply-status', target: 'target', status: 'fearful', stacks: 1 }],
             },
         ],
     },
@@ -136,15 +147,19 @@ describe('§7 canonical battle (R1/R5)', () => {
         expect(Number(mitigations.defenseFactor)).toBeCloseTo(100 / 103, 10);
     });
 
-    it('fear rolls at the brute turn start, skips, and decays at turn end (D5a.2/D5c)', () => {
+    it('fearful rolls at the brute turn start, skips, and decays at turn end (definition-driven D5a.2/D5c)', () => {
+        // the brute's 'fearful' instance rides the builtin seed definition
+        // (skipChancePerStack 0.25, stacks decay) — the generic
+        // definition-driven path is the ONLY skip gate; the roll, draw and
+        // expiry order are the seeded §7 timeline exactly.
         const sim = createSimulation(example);
         sim.run();
         expect(at(sim, 4)).toEqual([
             { type: 'turn:start', actor: 'brute', target: undefined, payload: undefined },
-            { type: 'action', actor: 'brute', target: undefined, payload: { kind: 'skip', reason: 'feared' } },
-            { type: 'status:expired', actor: 'brute', target: undefined, payload: { statusId: 'fear' } },
-            { type: 'status:tick', actor: 'brute', target: undefined, payload: { statusId: 'poison', damage: 4 } },
-            { type: 'damage', actor: 'brute', target: 'brute', payload: { amount: 4, damageType: 'true', source: 'poison', mitigations: { blocked: false, armourFactor: 1, defenseFactor: 1 } } },
+            { type: 'action', actor: 'brute', target: undefined, payload: { kind: 'skip', reason: 'fearful' } },
+            { type: 'status:expired', actor: 'brute', target: undefined, payload: { statusId: 'fearful' } },
+            { type: 'status:tick', actor: 'brute', target: undefined, payload: { statusId: 'poisoned', damage: 4 } },
+            { type: 'damage', actor: 'brute', target: 'brute', payload: { amount: 4, damageType: 'true', source: 'poisoned', mitigations: { blocked: false, armourFactor: 1, defenseFactor: 1 } } },
             { type: 'step:end', actor: undefined, target: undefined, payload: { step: 4, time: 1_000_000 } },
         ]);
     });
@@ -239,11 +254,13 @@ describe('outcomes (D5g)', () => {
     });
 
     it('mutual destruction draw: the last attacker dies to its own poison the same turn', () => {
+        // canonical 'poisoned' seed (tick 1 × stacks): stacks 5 ⇒ a 5-damage
+        // final tick kills the 5-hp attacker right after its own lethal hit.
         const definition: BattleDefinition = {
             schemaVersion: 1,
             mode: 'ffa',
             entities: [
-                { id: 'a', stats: { health: 5, strength: 100, speed: 1 }, statuses: [{ id: 'poison', stacks: 1, duration: 1, potency: 10 }] },
+                { id: 'a', stats: { health: 5, strength: 100, speed: 1 }, statuses: [{ id: 'poisoned', stacks: 5, duration: 1 }] },
                 { id: 'b', stats: { health: 1, strength: 0, speed: 1 } },
             ],
             startingConditions: { seed: 2 },
@@ -516,7 +533,7 @@ describe('defaultRules() explicit floor normalization (7 usage)', () => {
         expect(sim.events().some((event) => event.type === 'fault')).toBe(false);
     });
 
-    it('literal §7 usage on the §7 battle: floor resolves the BATTLE catalog, attacks all miss, poison kills', () => {
+    it('literal §7 usage on the §7 battle: floor resolves the BATTLE catalog, attacks all miss, poisoned kills', () => {
         // bounded run: the replaced decide handler drops the step-limit
         // invariant (D5g puts it in the DEFAULT handler) and with
         // alwaysMiss + a full friendly roster the survivors just wait —
@@ -524,11 +541,11 @@ describe('defaultRules() explicit floor normalization (7 usage)', () => {
         const sim = createSimulation(example, { plugins: [defaultRules(), alwaysMiss, gravityFlip, suddenEnd] });
         sim.run(50);
         expect(sim.events().some((event) => event.type === 'fault')).toBe(false);
-        // every damage event is a poison tick — zero weapon damage anywhere
+        // every damage event is a poisoned tick — zero weapon damage anywhere
         const damages = sim.events().filter((event) => event.type === 'damage');
-        expect(damages.map((event) => (event.payload as { source: string }).source)).toEqual(damages.map(() => 'poison'));
+        expect(damages.map((event) => (event.payload as { source: string }).source)).toEqual(damages.map(() => 'poisoned'));
         expect(damages.map((event) => (event.payload as { amount: number }).amount)).toEqual([4, 4, 8, 8, 12, 4]);
-        // the brute dies to poison alone (killerId absent), crown waits on
+        // the brute dies to poisoned alone (killerId absent), crown waits on
         expect(sim.events().find((event) => event.type === 'death')).toEqual(
             expect.objectContaining({ step: 24, actor: 'brute', payload: {} }),
         );
@@ -680,7 +697,7 @@ describe('declarative JSON rules through the engine (D8)', () => {
         const definition = duel({
             rules: {
                 contributions: [
-                    { id: 'scare', hook: 'damage:post', effects: [{ type: 'apply-status', target: 'target', status: 'fear', stacks: 1 }] },
+                    { id: 'scare', hook: 'damage:post', effects: [{ type: 'apply-status', target: 'target', status: 'wilt', stacks: 1 }] },
                     { id: 'banner', hook: 'step:end', effects: [{ type: 'emit', message: 'tick' }] },
                 ],
             },
@@ -696,7 +713,7 @@ describe('declarative JSON rules through the engine (D8)', () => {
             'step:end',
             'message',
         ]);
-        expect(sim.events()[4].payload).toEqual({ statusId: 'fear', stacks: 1, potency: 1 });
+        expect(sim.events()[4].payload).toEqual({ statusId: 'wilt', stacks: 1, potency: 1 });
         expect(sim.events()[6].message).toBe('tick');
     });
 

@@ -13,11 +13,12 @@ import { createTurnRunner } from './pipeline';
 import type { TurnRunner } from './pipeline';
 import { createPluginRegistry } from '../behavior/plugins';
 import { defaultRules } from '../behavior/rules';
+import { defaultStatusSeed } from '../data/catalogs';
 import { createCombatState, createEntityState, deepCopy, snapshotStateOf } from '../runtime/state';
 import type { CombatState } from '../runtime/state';
 import { createEventLog } from '../runtime/events';
 import { createRng } from '../runtime/rng';
-import type { AbilityDefinition, CombatPlugin, DeclarativeRule, EventDraft, HookHandler, ScheduleEntry, StateView, StepContext } from '../contract/types';
+import type { AbilityDefinition, CombatPlugin, DeclarativeRule, EventDraft, HookHandler, ScheduleEntry, StateView, StatusDefinition, StepContext } from '../contract/types';
 
 interface HarnessOptions {
     plugins?: CombatPlugin[];
@@ -28,10 +29,12 @@ interface HarnessOptions {
     abilities?: Map<string, AbilityDefinition>;
     entities?: ReturnType<typeof createEntityState>[];
     seed?: number;
+    // T2 (R1): registered status definitions for the resolved registry
+    statuses?: StatusDefinition[];
 }
 
-// Two unarmed ffa fighters (50 hp each) â€” no equipment events, no shield
-// rolls; seed 2 makes the default dodge roll land (0.325 â‰¥ 0.05).
+// Two unarmed ffa fighters (50 hp each) — no equipment events, no shield
+// rolls; seed 2 makes the default dodge roll land (0.325 ≥ 0.05).
 const mkHarness = (options: HarnessOptions = {}) => {
     const seed = options.seed ?? 2;
     const entities = options.entities ?? [
@@ -46,7 +49,8 @@ const mkHarness = (options: HarnessOptions = {}) => {
     });
     const rng = createRng(seed);
     const log = createEventLog(100_000);
-    const builtin = options.builtinRules === false ? undefined : defaultRules({ gear: [] });
+    const builtin = options.builtinRules === false ? undefined : defaultRules({ gear: [], statuses: options.statuses ?? defaultStatusSeed });
+    const statusById = new Map((options.statuses ?? defaultStatusSeed).map((definition) => [definition.id, definition]));
     let runner: TurnRunner;
     const registry = createPluginRegistry({
         builtin,
@@ -62,6 +66,7 @@ const mkHarness = (options: HarnessOptions = {}) => {
         config: { maxSteps: options.maxSteps ?? 10_000, maxCascade: options.maxCascade ?? 1_000, maxLogEvents: 100_000 },
         gear: () => undefined,
         ability: (id) => options.abilities?.get(id),
+        status: (id) => statusById.get(id),
         resistances: {},
         builtinRules: options.builtinRules !== false,
     });
@@ -127,17 +132,19 @@ describe('pipeline phase order (D5a)', () => {
         expect(runner.state().terminal).toEqual({ outcome: 'draw', reason: 'test-end', step: 1 });
     });
 
-    it('a skipped (stunned) turn is still a consumed step: turn:start â†’ action skip â†’ step:end', () => {
+    it('a skipped (stunned) turn is still a consumed step: turn:start → action skip → step:end', () => {
+        // canonical stunned via the seed definition (skipChancePerStack 1,
+        // duration decay): the skip roll draws, the gate is definition-driven
         const entities = [
-            createEntityState({ id: 'a', order: 0, stats: { health: 50, strength: 0, speed: 1 }, statuses: [{ id: 'stun', duration: 2 }] }),
+            createEntityState({ id: 'a', order: 0, stats: { health: 50, strength: 0, speed: 1 }, statuses: [{ id: 'stunned', duration: 2 }] }),
             createEntityState({ id: 'b', order: 1, stats: { health: 50, strength: 0, speed: 1 } }),
         ];
         const { runner, log } = mkHarness({ entities });
         runner.step();
         expect(shape(log.all().slice(1)).map((event) => event.type)).toEqual(['turn:start', 'action', 'step:end']);
         expect(log.all()[2].payload).toEqual({ kind: 'skip', reason: 'stunned' });
-        // stun decayed 2 â†’ 1 at own turn end (D5c)
-        expect(runner.state().entities[0].statuses).toEqual([{ id: 'stun', stacks: 1, duration: 1, potency: 1 }]);
+        // duration decayed 2 → 1 at own turn end (D5c)
+        expect(runner.state().entities[0].statuses).toEqual([{ id: 'stunned', stacks: 1, duration: 1, potency: 1 }]);
     });
 });
 
@@ -324,14 +331,17 @@ describe('pipeline builtinRules:false floor removal (D5/D6)', () => {
         expect(runner.state().terminal).toBeNull();
     });
 
-    it('no builtin â‡’ no poison/stun decay at turn end (chain defaults gated)', () => {
+    it('no builtin AND no definition ⇒ statuses are inert bookkeeping (chain defaults gated)', () => {
+        // 'poisoned' has no registered definition in this harness (statuses
+        // lookup emptied) and the builtin floor is dropped: no tick, no
+        // decay, no expiry, no damage — inert data either way.
         const entities = [
-            createEntityState({ id: 'a', order: 0, stats: { health: 50, strength: 0, speed: 1 }, statuses: [{ id: 'poison', stacks: 2, duration: 2, potency: 3 }] }),
+            createEntityState({ id: 'a', order: 0, stats: { health: 50, strength: 0, speed: 1 }, statuses: [{ id: 'poisoned', stacks: 2, duration: 2, potency: 3 }] }),
             createEntityState({ id: 'b', order: 1, stats: { health: 50, strength: 0, speed: 1 } }),
         ];
-        const { runner } = mkHarness({ entities, builtinRules: false });
+        const { runner } = mkHarness({ entities, builtinRules: false, statuses: [] });
         runner.step();
-        expect(runner.state().entities[0].statuses).toEqual([{ id: 'poison', stacks: 2, duration: 2, potency: 3 }]);
+        expect(runner.state().entities[0].statuses).toEqual([{ id: 'poisoned', stacks: 2, duration: 2, potency: 3 }]);
         expect(runner.state().entities[0].health).toBe(50);
     });
 });

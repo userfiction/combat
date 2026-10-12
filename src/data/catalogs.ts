@@ -39,18 +39,20 @@ import { BODY_PARTS } from '../contract/types';
 // ----------------------------------------------------------------------------
 // Builtin status-definition seed (T2 R1). Registered defaults the turn
 // engine consults (rules.ts select/turn-end consult the resolved registry).
-// The LEGACY trio ids (fear/poison/stun) are deliberately ABSENT: their
-// hardcoded D5c semantics stay exact while no client definition overrides
-// them; defining one of those ids in catalogs.statuses deliberately replaces
-// the legacy behavior with the generic definition path. Aliases
-// (fearful/poisoned) mirror the legacy behavior under NEW ids through the
-// generic path. All entries mirror legacy formulas where aliases exist:
-//   fearful  ≙ fear (stacks decay, 0.25 skip per stack)
-//   poisoned ≙ poison at default potency (1 damage × stacks per turn)
+// CANONICAL trio: fearful/poisoned/stunned are the shipped ailment defaults —
+// the engine has NO hardcoded per-id status branches, so these ids (like any
+// other) behave exactly as their definitions say. The engine id vocabulary
+// is open (D5f): unregistered ids (e.g. 'quicksand') remain allowable custom
+// data with no built-in semantics.
 // ----------------------------------------------------------------------------
+
 export const defaultStatusSeed: readonly StatusDefinition[] = [
     { id: 'fearful', name: 'Fearful', decay: 'stacks', skipChancePerStack: 0.25 },
     { id: 'poisoned', name: 'Poisoned', decay: 'duration', tick: { damage: 1 } },
+    // canonical stun: skipChancePerStack 1 ⇒ the action:select roll always
+    // skips while any stack lasts (the roll consumes one draw — accepted);
+    // duration decay expires it after the final own turn
+    { id: 'stunned', name: 'Stunned', decay: 'duration', skipChancePerStack: 1 },
     { id: 'bleeding', name: 'Bleeding', decay: 'duration', tick: { damage: 2 } },
     { id: 'burned', name: 'Burned', decay: 'duration', tick: { damage: 3 } },
     { id: 'blinded', name: 'Blinded', decay: 'duration', modifiers: { precision: -2 } },

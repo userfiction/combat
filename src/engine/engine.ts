@@ -64,6 +64,7 @@ import {
 import type {
     AbilityDefinition,
     BattleDefinition,
+    CombatantEdit,
     CombatPlugin,
     CreateSimulation,
     EntityResources,
@@ -352,6 +353,16 @@ export const createSimulation: CreateSimulation = (input, options: SimulationOpt
             log.emit({ type: 'battle:start', payload: { seed, mode: resolved.mode } }, 0, 0);
             runner.decideAtStepZero();
             log.trim(0, 0);
+            return simulation.snapshot();
+        },
+        // T3 live edit: validate + atomically patch one combatant of the
+        // RUNNING battle (runner carries the D7 snapshot/log-marker
+        // rollback); the returned snapshot is the post-edit state. Edits
+        // are part of the LIVE battle — reset() rewinds them (the stored
+        // definition is untouched), a restore keeps them (the snapshot
+        // carries the edited state).
+        editCombatant: (edit: CombatantEdit) => {
+            runner.editCombatant(edit);
             return simulation.snapshot();
         },
         isTerminal: () => runner.state().terminal !== null,

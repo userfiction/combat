@@ -9,8 +9,8 @@
 // override replaces"), so any client plugin declaring the hook replaces it
 // (last-wins, D6).
 //
-// Chain-mode defaults (D5b durability in `equipment:post`, D5c fear/poison/
-// stun in `status:turn-end`) CANNOT be plain handlers: handlers receive
+// Chain-mode defaults (D5b durability in `equipment:post`, D5c status
+// lifecycles in `status:turn-end`) CANNOT be plain handlers: handlers receive
 // read-only views and may only return EffectDescriptors (D7), and the D8
 // vocabulary has no durability/decay descriptor. Resolution (documented,
 // matches D6 "default runs first, contributions after" and the D5 preamble
@@ -32,11 +32,12 @@
 // are self-contained.
 //
 // RNG discipline (D4g): every roll below goes through ctx.rng ONLY, and the
-// draw points are exactly the D5 order: fear roll at action:select (only
-// when feared), target pick (rng.pick, one draw when ≥1 enemy), dodge roll
-// (always when the hook runs), crit roll (always), block roll (ONLY when a
-// shield is equipped), chance conditions (interpreter). Single-element
-// action pools consume NO draw (D5a.2).
+// draw points are exactly the D5 order: definition-driven skip rolls at
+// action:select (one draw per status with skipChancePerStack > 0, stored
+// order), target pick (rng.pick, one draw when ≥1 enemy), dodge roll (always
+// when the hook runs), crit roll (always), block roll (ONLY when a shield is
+// equipped), chance conditions (interpreter). Single-element action pools
+// consume NO draw (D5a.2).
 // ============================================================================
 
 import { defaultInterval, defaultOrder } from '../runtime/scheduler';
@@ -55,7 +56,6 @@ import {
     DEFAULT_ABILITY_COST,
     DODGE_CHANCE_CAP,
     DODGE_CHANCE_PER_POINT,
-    FEAR_SKIP_CHANCE_PER_STACK,
     MIN_LANDED_DAMAGE,
     SHIELD_BLOCK_CHANCE,
     STRENGTH_FACTOR_PER_POINT,
@@ -168,8 +168,8 @@ export const defaultRules = (options: DefaultRulesOptions = {}): CombatPlugin =>
     const gearById = new Map<string, GearDefinition>(gear.map((definition) => [definition.id, definition]));
     const abilityById = new Map<string, AbilityDefinition>((options.abilities ?? []).map((definition) => [definition.id, definition]));
     // T2 (R1): the RESOLVED status registry — select/turn-end consult these
-    // definitions; legacy fear/poison/stun keep their hardcoded semantics
-    // only for ids WITHOUT a definition here.
+    // definitions; ids WITHOUT a definition here are inert (no skip roll,
+    // no tick, no decay — open-vocabulary custom data).
     const statusById = new Map<string, StatusDefinition>((options.statuses ?? []).map((definition) => [definition.id, definition]));
     const vocab = options.vocab ?? { condition: () => undefined, effect: () => undefined };
     const adapter = conditionOnlyAdapter();
@@ -182,29 +182,20 @@ export const defaultRules = (options: DefaultRulesOptions = {}): CombatPlugin =>
             'scheduler:interval': (_view, _ctx, args: SchedulerIntervalArgs) => defaultInterval(args),
             'scheduler:order': (_view, _ctx, args: SchedulerOrderArgs) => defaultOrder(args),
 
-            // --- action:select (D5a.2) — fixed order: stun gate, fear roll,
-            // definition-driven skip rolls (T2), usable hostile pool (with
-            // resource-cost affordability, R3), wait ONLY as the empty-pool
-            // fallback ---
+            // --- action:select (D5a.2) — fixed order: definition-driven
+            // skip rolls (the ONLY skip gate — every status whose resolved
+            // definition carries skipChancePerStack rolls), then the usable
+            // hostile pool (with resource-cost affordability, R3), wait ONLY
+            // as the empty-pool fallback ---
             'action:select': (view, ctx, args) => {
                 const actor = (args as { actor: EntityView }).actor;
-                // stun gates the whole turn (D5c): forced skip, no roll, no draw
-                if (actor.statuses.some((status) => status.id === 'stun')) {
-                    return { kind: 'skip', reason: 'stunned' } satisfies ActionSelection;
-                }
-                // fear roll (D5a.2): rng < 0.25 × stacks; the roll happens
-                // (consumes one draw) whenever fear is present, skip or not.
-                // Decay is NOT here — it runs at status:turn-end (D5c).
-                const fear = actor.statuses.find((status) => status.id === 'fear');
-                if (fear) {
-                    if (ctx.rng.next() < FEAR_SKIP_CHANCE_PER_STACK * (fear.stacks ?? 1)) {
-                        return { kind: 'skip', reason: 'feared' } satisfies ActionSelection;
-                    }
-                }
                 // T2 (R1) definition-driven skip rolls: every status whose
                 // resolved definition carries skipChancePerStack rolls
                 // rng < chance × stacks (one draw each, stored order —
                 // deterministic). Reason = the status id (open set, D6).
+                // The canonical seed rides this path: stunned's
+                // skipChancePerStack 1 always skips (the draw is accepted),
+                // fearful's 0.25 rolls per stack.
                 for (const status of actor.statuses) {
                     const definition = statusById.get(status.id);
                     const chance = definition?.skipChancePerStack ?? 0;
@@ -381,11 +372,11 @@ export interface PhaseDefaultApi {
     // maxHealth, no revive) — same contract as the D8 heal effect.
     healEntity(entityId: string, amount: number): HealResult;
     removeStatus(entityId: string, statusId: string): boolean;
-    // overwrite stacks/duration on an existing instance (fear decay, poison/
-    // stun duration decay, T2 definition decay) — no event; callers emit per
-    // D5c rules. T2: `definition` provided ⇒ the engine re-materializes the
-    // definition's per-stack modifiers after the patch (a stack change must
-    // re-scale status-borne modifiers immediately).
+    // overwrite stacks/duration on an existing instance (definition decay)
+    // — no event; callers emit per D5c rules. T2: `definition` provided ⇒
+    // the engine re-materializes the definition's per-stack modifiers after
+    // the patch (a stack change must re-scale status-borne modifiers
+    // immediately).
     patchStatus(entityId: string, statusId: string, patch: { stacks?: number; duration?: number }, definition?: StatusDefinition): void;
     decrementStatModifiers(entityId: string): StatModifier[];
     dropScheduleEntries(entityId: string): void;
@@ -419,22 +410,17 @@ export const applyEquipmentPostDefault = (api: PhaseDefaultApi, args: EquipmentP
 };
 
 // D5c affliction behavior at the END of the afflicted entity's own scheduled
-// turn (status:turn-end default, runs BEFORE chain contributions):
-//   fear  (stacks): stacks −1; expired at 0 (status:expired). Silent decay.
-//   poison (duration): deal potency × stacks direct damage (status:tick +
-//     damage event, source 'poison', bypasses mitigation, CAN kill — death
-//     drops the schedule), THEN duration −1; expired at 0.
-//   stun  (duration): duration −1; expired at 0 (the skip itself was gated
-//     at action:select).
+// turn (status:turn-end default, runs BEFORE chain contributions).
 //
-// T2 (R1) definition-driven statuses: when the RESOLVED status registry has
-// a definition for the instance's id, the GENERIC path handles it — per own
-// turn, in order: tick (damage → heal, × stacks) then decay
-// ('stacks' −1 per turn / 'duration' countdown / 'none' permanent). The
-// legacy trio keeps its hardcoded semantics ONLY while no definition exists
-// for its id; a client definition deliberately replaces it (documented).
+// T2 (R1) — CANONICAL, definition-driven ONLY: when the RESOLVED status
+// registry has a definition for the instance's id, the generic path handles
+// it — per own turn, in order: tick (damage → heal, × stacks) then decay
+// ('stacks' −1 per turn / 'duration' countdown / 'none' permanent). An
+// id WITHOUT a definition has NO engine semantics (inert bookkeeping —
+// plugins may implement semantics as chain contributions, D5f). There are
+// NO hardcoded per-id branches.
 // `statusOf` is the resolved-registry lookup — omitted by older callers
-// (2-argument signature preserved) which then get exact legacy behavior.
+// (2-argument signature preserved) which then treat every id as unregistered.
 // Temporary stat modifiers decrement in the same phase (D5c); each expired
 // modifier fires stat:expired (D11). Statuses iterate in stored order —
 // deterministic.
@@ -446,59 +432,13 @@ export const applyStatusTurnEndDefault = (
     const entity = args.entity;
     for (const status of entity.statuses) {
         const stacks = status.stacks ?? 1;
-        const potency = status.potency ?? 1;
         const definition = statusOf?.(status.id);
         if (definition) {
             applyDefinitionTurnEnd(api, entity, status, stacks, definition);
-            continue;
         }
-        if (status.id === 'fear') {
-            const remaining = stacks - 1;
-            if (remaining <= 0) {
-                api.removeStatus(entity.id, 'fear');
-                api.emit({ type: 'status:expired', actor: entity.id, payload: { statusId: 'fear' } });
-            } else {
-                api.patchStatus(entity.id, 'fear', { stacks: remaining });
-            }
-        } else if (status.id === 'poison') {
-            // tick FIRST, then decay (D5c "after the final tick" expiry fires
-            // after the damage); damage bypasses mitigation, can kill.
-            const result = api.damageEntity(entity.id, potency * stacks);
-            api.emit({ type: 'status:tick', actor: entity.id, payload: { statusId: 'poison', damage: result.applied } });
-            api.emit({
-                type: 'damage',
-                actor: entity.id,
-                target: entity.id,
-                payload: {
-                    amount: result.applied,
-                    damageType: 'true',
-                    source: 'poison',
-                    mitigations: { blocked: false, armourFactor: 1, defenseFactor: 1 },
-                },
-            });
-            if (result.killed) {
-                api.emit({ type: 'death', actor: entity.id, payload: {} });
-                api.dropScheduleEntries(entity.id);
-            }
-            const remaining = (status.duration ?? 0) - 1;
-            if (remaining <= 0) {
-                api.removeStatus(entity.id, 'poison');
-                api.emit({ type: 'status:expired', actor: entity.id, payload: { statusId: 'poison' } });
-            } else {
-                api.patchStatus(entity.id, 'poison', { duration: remaining });
-            }
-        } else if (status.id === 'stun') {
-            const remaining = (status.duration ?? 0) - 1;
-            if (remaining <= 0) {
-                api.removeStatus(entity.id, 'stun');
-                api.emit({ type: 'status:expired', actor: entity.id, payload: { statusId: 'stun' } });
-            } else {
-                api.patchStatus(entity.id, 'stun', { duration: remaining });
-            }
-        }
-        // any other id: bookkeeping only — semantics live in plugin chain
-        // contributions (D5f honest statement), or in the definition-driven
-        // branch above when the resolved registry has a definition.
+        // unregistered id: bookkeeping only — semantics live in plugin chain
+        // contributions (D5f honest statement); the engine ships no hardcoded
+        // per-id branch.
     }
     // temporary stat modifiers decrement in the same phase (D5c)
     for (const expired of api.decrementStatModifiers(entity.id)) {
@@ -506,8 +446,8 @@ export const applyStatusTurnEndDefault = (
     }
 };
 
-// T2 (R1) generic definition-driven own-turn processing (mirrors the poison
-// event order exactly: tick events → death bookkeeping → decay/expiry).
+// T2 (R1) generic definition-driven own-turn processing — the canonical
+// event order: tick events → death bookkeeping → decay/expiry.
 const applyDefinitionTurnEnd = (
     api: PhaseDefaultApi,
     entity: EntityView,

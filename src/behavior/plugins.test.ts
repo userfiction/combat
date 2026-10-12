@@ -235,7 +235,7 @@ describe('chain-mode ordering and JSON rule compilation', () => {
                 id: 'terror',
                 hook: 'damage:post',
                 when: { type: 'stat', ref: 'target', stat: 'health', op: 'lte', value: 12 },
-                effects: [{ type: 'apply-status', target: 'target', status: 'fear', stacks: 1 }],
+                effects: [{ type: 'apply-status', target: 'target', status: 'fearful', stacks: 1 }],
             },
         ];
         // ctx.refs.target = the 10-hp entity (≤ 12) ⇒ rule fires and its
@@ -243,7 +243,7 @@ describe('chain-mode ordering and JSON rule compilation', () => {
         const attackCtx: StepContext = { ...ctx, refs: { actor, target: actor } };
         const registry = createPluginRegistry({ rules, runtime: () => ({ adapter, view: () => viewA }) });
         for (const handler of registry.chain('damage:post')) handler(view, attackCtx, {});
-        expect(calls).toEqual([{ op: 'apply-status', entityId: 'a', status: 'fear', stacks: 1 }]);
+        expect(calls).toEqual([{ op: 'apply-status', entityId: 'a', status: 'fearful', stacks: 1 }]);
     });
 });
 

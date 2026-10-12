@@ -35,7 +35,7 @@ const knight: EntityView = {
     id: 'knight', name: 'Ser Gallant', team: 'crown', order: 0,
     living: true, health: 23, maxHealth: 30,
     stats: { health: 30, strength: 8, speed: 1, defense: 3, precision: 0, evasion: 0 },
-    statuses: [{ id: 'fear', stacks: 2, potency: 1 }],
+    statuses: [{ id: 'wilt', stacks: 2, potency: 1 }],
     equipment: [
         { gearId: 'longsword', slot: 'weapon-1', durability: 12 },
         { gearId: 'warden-mail', slot: 'body', durability: 8 },
@@ -149,9 +149,9 @@ describe('evaluateCondition — builtin vocabulary (D8)', () => {
 
     it('should evaluate has-status', () => {
         const { deps } = makeDeps();
-        expect(evaluateCondition({ type: 'has-status', ref: 'attacker', status: 'fear' }, deps)).toBe(true);
-        expect(evaluateCondition({ type: 'has-status', ref: 'attacker', status: 'poison' }, deps)).toBe(false);
-        expect(evaluateCondition({ type: 'has-status', ref: 'target', status: 'fear' }, deps)).toBe(false);
+        expect(evaluateCondition({ type: 'has-status', ref: 'attacker', status: 'wilt' }, deps)).toBe(true);
+        expect(evaluateCondition({ type: 'has-status', ref: 'attacker', status: 'mire' }, deps)).toBe(false);
+        expect(evaluateCondition({ type: 'has-status', ref: 'target', status: 'wilt' }, deps)).toBe(false);
     });
 
     it('should evaluate has-gear through the slot↔kind map (D9)', () => {
@@ -204,7 +204,7 @@ describe('evaluateCondition — builtin vocabulary (D8)', () => {
             type: 'all',
             of: [
                 { type: 'any', of: [{ type: 'never' }, { type: 'mode', is: 'teams' }] },
-                { type: 'not', of: { type: 'has-status', ref: 'target', status: 'poison' } },
+                { type: 'not', of: { type: 'has-status', ref: 'target', status: 'mire' } },
             ],
         }, deps)).toBe(true);
     });
@@ -304,9 +304,9 @@ describe('applyEffects — builtin vocabulary (D8)', () => {
             { type: 'damage-flat', target: 'self', amount: 4 },
             { type: 'damage-flat', target: 'attacker', amount: 1, damageType: 'true' },
             { type: 'heal', target: 'self', amount: 5 },
-            { type: 'apply-status', target: 'target', status: 'poison', stacks: 2, duration: 3, potency: 2 },
-            { type: 'apply-status', target: 'target', status: 'fear' },
-            { type: 'remove-status', target: 'target', status: 'poison' },
+            { type: 'apply-status', target: 'target', status: 'mire', stacks: 2, duration: 3, potency: 2 },
+            { type: 'apply-status', target: 'target', status: 'wilt' },
+            { type: 'remove-status', target: 'target', status: 'mire' },
             { type: 'break-equipment', target: 'target', slot: 'weapon-1' },
             { type: 'break-equipment', target: 'attacker' },
             { type: 'modify-stat', target: 'target', stat: 'speed', amount: -1, duration: 2 },
@@ -321,9 +321,9 @@ describe('applyEffects — builtin vocabulary (D8)', () => {
             { op: 'damage-flat', entityId: 'knight', amount: 4 },
             { op: 'damage-flat', entityId: 'knight', amount: 1, damageType: 'true' },
             { op: 'heal', entityId: 'knight', amount: 5 },
-            { op: 'apply-status', entityId: 'brute', status: 'poison', stacks: 2, duration: 3, potency: 2 },
-            { op: 'apply-status', entityId: 'brute', status: 'fear' },
-            { op: 'remove-status', entityId: 'brute', status: 'poison' },
+            { op: 'apply-status', entityId: 'brute', status: 'mire', stacks: 2, duration: 3, potency: 2 },
+            { op: 'apply-status', entityId: 'brute', status: 'wilt' },
+            { op: 'remove-status', entityId: 'brute', status: 'mire' },
             { op: 'break-equipment', entityId: 'brute', slot: 'weapon-1' },
             { op: 'break-equipment', entityId: 'knight' },
             { op: 'modify-stat', entityId: 'brute', stat: 'speed', amount: -1, duration: 2 },

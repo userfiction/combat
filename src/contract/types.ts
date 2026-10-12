@@ -25,9 +25,11 @@
 //      carry. Resolution: HookHandler gains a third `args` parameter typed
 //      per-hook by HookContracts; 2-parameter handlers (all §7 examples)
 //      remain assignable. See HookHandler.
-//   3. fear decays in the status:turn-end chain (D5c phase-order summary),
-//      NOT during action:select — the roll happens at select, decay at the
-//      end of the afflicted entity's own scheduled turn.
+//   3. Status lifecycles are DEFINITION-DRIVEN only (R1 canonical): tick →
+//      decay → expiry run in the status:turn-end phase; skip gating rolls at
+//      action:select. There are NO hardcoded per-id status branches — every
+//      id's semantics come from its StatusDefinition (or nothing at all for
+//      unregistered open-set ids, which stay inert bookkeeping data).
 // ============================================================================
 
 // ----------------------------------------------------------------------------
@@ -206,10 +208,10 @@ export interface StatInput {
 }
 export type StatBlock = Required<StatInput>;
 
-// Starting/running status instance (D3/D5c). Builtin behaviors exist for
-// fear (stacks), poison (duration+potency), stun (duration); any other id is
-// valid data whose semantics come from a registered StatusDefinition (T2
-// status catalog) or a code plugin (D5f — open id set).
+// Starting/running status instance (D3/D5c). Any id is valid data (open set,
+// D5f): its semantics come ENTIRELY from a registered StatusDefinition (T2
+// status catalog) or a code plugin — the engine ships no hardcoded id
+// branches, so an unregistered id is inert bookkeeping data.
 //
 // `modifiers` is ENGINE-MATERIALIZED bookkeeping (T2 R1): when a definition
 // with `modifiers` is applied/refreshed, the engine writes the per-stack
@@ -229,15 +231,14 @@ export interface StatusInstance {
 // catalogs.statuses REGISTER these; actor statuses stay StatusInstance
 // references that effects apply/remove. The builtin turn-end/select floor
 // CONSULTS the resolved registry: a status whose id has a definition here is
-// driven by it (tick → decay → expiry); the legacy fear/poison/stun ids keep
-// their hardcoded D5c semantics ONLY while no client definition overrides
-// them (a client definition for one of those ids deliberately replaces the
-// legacy behavior — documented, predictable).
+// driven by it (tick → decay → expiry); an unregistered id has NO engine
+// semantics (inert data) — the canonical seed (fearful/poisoned/stunned)
+// covers the shipped defaults.
 // ----------------------------------------------------------------------------
 
 // Lifetime semantics at the afflicted entity's own turn end (status:turn-end):
-//   'stacks'   — lose 1 stack per own turn (fear-style); expire at 0
-//   'duration' — countdown per own turn (poison-style); tick fires BEFORE the
+//   'stacks'   — lose 1 stack per own turn (fearful-style); expire at 0
+//   'duration' — countdown per own turn (poisoned-style); tick fires BEFORE the
 //                decrement so the final tick precedes expiry (D5c order)
 //   'none'     — permanent until explicitly removed (dispel effect / heal)
 export const STATUS_DECAY_MODES = ['stacks', 'duration', 'none'] as const;
@@ -245,8 +246,8 @@ export type StatusDecayMode = (typeof STATUS_DECAY_MODES)[number];
 
 // Per-own-turn tick values, scaled by the instance's stacks (e.g. tick
 // damage 2 with 3 stacks ticks for 6). `potency` does NOT scale definition
-// ticks (it is legacy-poison bookkeeping) — documented divergence, kept so
-// the StatusInstance shape stays shared.
+// ticks (it is instance bookkeeping carried for effects/events) — documented
+// divergence, kept so the StatusInstance shape stays shared.
 export interface StatusTickEffect {
     damage?: number;                     // true-damage tick (bypasses mitigation, can kill)
     heal?: number;                       // self-heal tick (clamped at maxHealth, no revive)
@@ -262,9 +263,11 @@ export interface StatusDefinition {
     modifiers?: Partial<Record<StatKey, number>>;
     tick?: StatusTickEffect;                 // runs each own turn before decay
     decay?: StatusDecayMode;                 // default 'none' (permanent)
-    // action:select skip chance per stack (fear-style gating): roll
+    // action:select skip chance per stack (fearful-style gating): roll
     // rng < skipChancePerStack × stacks ⇒ the turn is skipped with reason
-    // statusId. Default 0 (no gating).
+    // statusId. Default 0 (no gating). THE only skip mechanism — the engine
+    // has no hardcoded per-id gate, so stunned's canonical definition carries
+    // skipChancePerStack 1 (the roll always skips; it consumes one draw).
     skipChancePerStack?: number;
 }
 
@@ -376,8 +379,8 @@ export interface AbilityDefinition {
 // patch semantics live in catalogs.ts, T2). T2 adds `statuses`: status
 // definitions patch over defaultStatusSeed by id (same fold semantics), so
 // custom ailment/buff definitions override the registered defaults
-// predictably — including deliberately replacing legacy fear/poison/stun
-// behavior by defining those ids.
+// predictably, and arbitrary new ids (open vocabulary) may be defined the
+// same way.
 export interface GearCatalogSection {
     gear?: GearDefinition[];
     abilities?: AbilityDefinition[];
@@ -513,7 +516,9 @@ export type KnownEventType =
     | 'damage' | 'heal' | 'status:applied' | 'status:resisted' | 'status:tick'
     | 'status:expired' | 'stat:modified' | 'stat:expired' | 'gear:damaged'
     | 'gear:broken' | 'injury:applied' | 'injury:healed' | 'resource:spent'
-    | 'resource:modified' | 'death' | 'log-trimmed' | 'step:end' | 'outcome' | 'fault';
+    | 'resource:modified' | 'death' | 'log-trimmed' | 'step:end' | 'outcome' | 'fault'
+    // T3 live edit (engine-emitted outside any step, no step increment)
+    | 'combatant:edited';
 
 // What ctx.emit accepts — the engine stamps id/step/time (D7/D11).
 export interface EventDraft {
@@ -623,14 +628,17 @@ export interface SchedulerOrderArgs {
     candidates: ScheduleCandidate[];
 }
 
-// Action kinds (D5a.2). skip = stunned/feared/no-target turn (reason carried).
+// Action kinds (D5a.2). skip = status-gated (definition skip roll) or
+// no-target turn (reason carried).
 export type ActionKind = 'attack' | 'ability' | 'wait' | 'skip';
 
 // action:select result (D6): `{ kind, abilityId?, reason? }`.
 export interface ActionSelection {
     kind: ActionKind;
     abilityId?: string;                      // required in practice when kind === 'ability'
-    reason?: string;                         // e.g. 'stunned' | 'feared' | 'no-target' (open set)
+    reason?: string;                         // e.g. 'stunned' | 'no-target' (open set — the
+                                             // default selector reports the STATUS id whose
+                                             // skip roll fired, or 'no-target')
 }
 
 // action:select args — `{ actor }` (D6).
@@ -726,8 +734,8 @@ export interface EquipmentPostArgs {
 }
 
 // status:turn-end chain context (D5c/D6): the entity whose scheduled turn
-// just ended — builtin fear/poison/stun decay + temp-modifier decrement key
-// off this entity.
+// just ended — definition-driven status processing (tick → decay → expiry)
+// and temp-modifier decrement key off this entity.
 export interface StatusTurnEndArgs {
     entity: EntityView;
 }
@@ -906,6 +914,67 @@ export interface SimulationSnapshot {
 // D2 — Simulation object, options, validation, errors
 // ----------------------------------------------------------------------------
 
+// ----------------------------------------------------------------------------
+// T3 live-edit contract (CombatantEdit) — a VALIDATED ATOMIC PATCH of one
+// combatant applied to the RUNNING battle between turns (Simulation.editCombatant).
+// Plain JSON, synchronous, engine-validated with collect-all errors thrown as
+// CombatValidationError. On success step/virtualTime/RNG/log are preserved
+// (only one `combatant:edited` event is appended); on ANY failure (including
+// a plugin-hook throw during scheduler math) the exact prior state/log/RNG
+// are rolled back. Terminal and reentrant (inside an executing hook) edits
+// are rejected.
+// ----------------------------------------------------------------------------
+
+// One gear slot of a gear edit: `id: null` CLEARS the slot; a non-null id
+// must resolve to a catalog definition whose kind/slot rules accept the slot,
+// with `durability` defaulting to the catalog value (bounded 1..2000).
+export interface CombatantGearEdit {
+    slot: Slot;
+    id: string | null;
+    durability?: number;
+}
+
+// One status op of a status edit. op 'set' is a DIRECT ADMIN SET: the
+// instance is replaced wholesale (stacks default 1, potency default 1,
+// duration absent unless provided) — no resistance, no stack-cap refresh
+// math, and the definition's per-stack modifiers are materialized when the
+// id is registered (unregistered ids stay allowable custom data). op
+// 'remove' deletes the instance and carries no extra fields.
+export interface CombatantStatusEdit {
+    id: string;
+    op: 'set' | 'remove';
+    stacks?: number;
+    duration?: number;
+    potency?: number;
+}
+
+// Injuries add/remove of a live combatant. Both lists are closed-set
+// BodyParts; adding an already-missing part or removing a present part is a
+// validation error, so the projected anatomy is always explicit.
+export interface CombatantInjuriesEdit {
+    add?: BodyPart[];
+    remove?: BodyPart[];
+}
+
+// One non-health resource pool of a resource edit: EXACT REPLACE of the
+// pool, or `null` to REMOVE it. Keys are stamina/mana ONLY — the `energy`
+// alias exists for initial battle input only, never in the edit contract.
+export interface CombatantResourceEdit {
+    current: number;
+    max: number;
+}
+
+// The full edit shape (frozen shared API with the demo UI worker):
+export interface CombatantEdit {
+    entityId: string;
+    health?: number;                         // clamped into [0, maxHealth]; 0 kills, > 0 revives
+    baseStats?: Partial<StatBlock>;           // provided keys replace; baseStats.health IS maxHealth
+    gear?: CombatantGearEdit[];
+    statuses?: CombatantStatusEdit[];
+    injuries?: CombatantInjuriesEdit;
+    resources?: Partial<Record<ResourceKey, CombatantResourceEdit | null>>;
+}
+
 // The public simulation (D2). Every returned object is a deep copy —
 // mutating results never affects engine state. Terminal states are
 // idempotent: step/run after terminal return the current snapshot unchanged
@@ -917,6 +986,11 @@ export interface Simulation {
     step(): SimulationSnapshot;              // one scheduled turn + cascade; no-op at terminal
     run(limit?: number): SimulationSnapshot; // steps until terminal or `limit` extra steps
     reset(): SimulationSnapshot;             // rewind to initial state from the stored input copy
+    // Live edit (T3): validate + atomically patch one combatant of the
+    // RUNNING battle, preserving step/time/RNG/log; returns the post-edit
+    // snapshot. Throws CombatValidationError on any rejected field, a
+    // terminal battle, a reentrant call, or a plugin-hook throw (rolled back).
+    editCombatant(edit: CombatantEdit): SimulationSnapshot;
     isTerminal(): boolean;
     outcome(): Outcome | null;               // null while running
 }
@@ -1044,7 +1118,6 @@ export const ARMOUR_MITIGATION_FLOOR = 0.1;       // Π(1−resist) floored at �
 export const DEFENSE_DIVISOR_BASE = 100;          // × 100 / (100 + defense)
 export const MIN_LANDED_DAMAGE = 1;               // "hits always hurt" (D5a.8)
 export const DURABILITY_LOSS_PER_HIT = 1;         // D5b: weapon −1 / each contributing piece −1
-export const FEAR_SKIP_CHANCE_PER_STACK = 0.25;   // D5a.2: rng < 0.25 × stacks
 
 // --- interpreter + plugin bounds (D7/D8/D5a.12) ---
 export const MAX_RULE_DEPTH = 16;                 // condition nesting

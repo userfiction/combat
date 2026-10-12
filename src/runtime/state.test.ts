@@ -45,7 +45,7 @@ const mkEntityA = (): EntityState =>
         team: 'x',
         order: 0,
         stats: { health: 30, strength: 8, speed: 1, defense: 3 },
-        statuses: [{ id: 'fear' }],
+        statuses: [{ id: 'wilt' }],
         equipment: [
             { gearId: 'longsword', slot: 'weapon-1', durability: 12 },
             { gearId: 'warden-mail', slot: 'body', durability: 8 },
@@ -117,7 +117,7 @@ describe('createEntityState', () => {
             id: 'knight',
             order: 0,
             stats: { health: 30, strength: 8, speed: 1, defense: 3 },
-            statuses: [{ id: 'fear' }],
+            statuses: [{ id: 'wilt' }],
             equipment: [{ gearId: 'longsword', slot: 'weapon-1', durability: 12 }],
         });
         expect(entity).toEqual({
@@ -132,7 +132,7 @@ describe('createEntityState', () => {
             stats: { health: 30, strength: 8, speed: 1, defense: 3, precision: 0, evasion: 0 },
             baseStats: { health: 30, strength: 8, speed: 1, defense: 3, precision: 0, evasion: 0 },
             statModifiers: [],
-            statuses: [{ id: 'fear', stacks: 1, potency: 1 }], // D3/D5c defaults filled
+            statuses: [{ id: 'wilt', stacks: 1, potency: 1 }], // D3/D5c defaults filled
             equipment: [{ gearId: 'longsword', slot: 'weapon-1', durability: 12 }],
             cooldowns: {},
         });
@@ -141,12 +141,12 @@ describe('createEntityState', () => {
     });
 
     it('should deep-copy seed arrays so later caller mutations cannot leak in', () => {
-        const statuses = [{ id: 'fear' }];
+        const statuses = [{ id: 'wilt' }];
         const equipment = [{ gearId: 'longsword', slot: 'weapon-1' as const, durability: 12 }];
         const entity = createEntityState({ id: 'k', order: 0, stats: { health: 10, strength: 1, speed: 1 }, statuses, equipment });
-        statuses[0].id = 'poison';
+        statuses[0].id = 'mire';
         equipment[0].durability = 1;
-        expect(entity.statuses).toEqual([{ id: 'fear', stacks: 1, potency: 1 }]);
+        expect(entity.statuses).toEqual([{ id: 'wilt', stacks: 1, potency: 1 }]);
         expect(entity.equipment).toEqual([{ gearId: 'longsword', slot: 'weapon-1', durability: 12 }]);
     });
 
@@ -195,7 +195,7 @@ describe('entityViewOf / stateViewOf', () => {
         expect(entityViewOf(state.entities[0])).toEqual({
             id: 'a', name: 'Alpha', team: 'x', order: 0, living: true, health: 30, maxHealth: 30,
             stats: { health: 30, strength: 8, speed: 1, defense: 3, precision: 0, evasion: 0 },
-            statuses: [{ id: 'fear', stacks: 1, potency: 1 }],
+            statuses: [{ id: 'wilt', stacks: 1, potency: 1 }],
             equipment: [
                 { gearId: 'longsword', slot: 'weapon-1', durability: 12 },
                 { gearId: 'warden-mail', slot: 'body', durability: 8 },
@@ -210,7 +210,7 @@ describe('entityViewOf / stateViewOf', () => {
                 {
                     id: 'a', name: 'Alpha', team: 'x', order: 0, living: true, health: 30, maxHealth: 30,
                     stats: { health: 30, strength: 8, speed: 1, defense: 3, precision: 0, evasion: 0 },
-                    statuses: [{ id: 'fear', stacks: 1, potency: 1 }],
+                    statuses: [{ id: 'wilt', stacks: 1, potency: 1 }],
                     equipment: [
                         { gearId: 'longsword', slot: 'weapon-1', durability: 12 },
                         { gearId: 'warden-mail', slot: 'body', durability: 8 },
@@ -254,7 +254,7 @@ describe('snapshotOf / restoreFrom (D10)', () => {
                 {
                     id: 'a', name: 'Alpha', team: 'x', order: 0, living: true, health: 30, maxHealth: 30,
                     stats: { health: 30, strength: 8, speed: 1, defense: 3, precision: 0, evasion: 0 },
-                    statuses: [{ id: 'fear', stacks: 1, potency: 1 }],
+                    statuses: [{ id: 'wilt', stacks: 1, potency: 1 }],
                     equipment: [
                         { gearId: 'longsword', slot: 'weapon-1', durability: 12 },
                         { gearId: 'warden-mail', slot: 'body', durability: 8 },
@@ -343,30 +343,30 @@ describe('damageEntity / healEntity (D5a.9)', () => {
 describe('applyStatus (D5c stacking + D5e resistance)', () => {
     it('should apply, refresh and cap with exact numbers', () => {
         const state = mkState();
-        expect(applyStatus(state, 'b', 'poison', { stacks: 2, duration: 3, potency: 2 }))
-            .toEqual({ kind: 'applied', status: { id: 'poison', stacks: 2, duration: 3, potency: 2 } });
+        expect(applyStatus(state, 'b', 'mire', { stacks: 2, duration: 3, potency: 2 }))
+            .toEqual({ kind: 'applied', status: { id: 'mire', stacks: 2, duration: 3, potency: 2 } });
         // refresh: stacks 2+2=4; duration max(3,2)=3; potency keeps the existing 2.
-        expect(applyStatus(state, 'b', 'poison', { stacks: 2, duration: 2, potency: 5 }))
-            .toEqual({ kind: 'refreshed', status: { id: 'poison', stacks: 4, duration: 3, potency: 2 } });
+        expect(applyStatus(state, 'b', 'mire', { stacks: 2, duration: 2, potency: 5 }))
+            .toEqual({ kind: 'refreshed', status: { id: 'mire', stacks: 4, duration: 3, potency: 2 } });
         // cap: min(4+9, 9) = 9 (D5c/D13).
-        expect(applyStatus(state, 'b', 'poison', { stacks: 9 }))
-            .toEqual({ kind: 'refreshed', status: { id: 'poison', stacks: 9, duration: 3, potency: 2 } });
-        // defaults: fear re-application on entity a (stacks 1) → 2, no duration either side.
-        expect(applyStatus(state, 'a', 'fear'))
-            .toEqual({ kind: 'refreshed', status: { id: 'fear', stacks: 2, potency: 1 } });
+        expect(applyStatus(state, 'b', 'mire', { stacks: 9 }))
+            .toEqual({ kind: 'refreshed', status: { id: 'mire', stacks: 9, duration: 3, potency: 2 } });
+        // defaults: wilt re-application on entity a (stacks 1) → 2, no duration either side.
+        expect(applyStatus(state, 'a', 'wilt'))
+            .toEqual({ kind: 'refreshed', status: { id: 'wilt', stacks: 2, potency: 1 } });
     });
 
     it('should honor resistance: floor(added × (1 − resist)), full resist, and zeroed stacks', () => {
         const state = mkState();
         // floor(3 × 0.5) = 1
-        expect(applyStatus(state, 'b', 'fear', { stacks: 3, resistance: 0.5 }))
-            .toEqual({ kind: 'applied', status: { id: 'fear', stacks: 1, potency: 1 } });
+        expect(applyStatus(state, 'b', 'wilt', { stacks: 3, resistance: 0.5 }))
+            .toEqual({ kind: 'applied', status: { id: 'wilt', stacks: 1, potency: 1 } });
         // resist ≥ 1 ⇒ full resist, nothing written (D5e).
-        expect(applyStatus(state, 'b', 'stun', { stacks: 5, duration: 2, resistance: 1 })).toEqual({ kind: 'resisted' });
+        expect(applyStatus(state, 'b', 'numb', { stacks: 5, duration: 2, resistance: 1 })).toEqual({ kind: 'resisted' });
         // floor(1 × 0.5) = 0 on a NEW status ⇒ resisted (declared edge).
         expect(applyStatus(state, 'b', 'daze', { stacks: 1, resistance: 0.5 })).toEqual({ kind: 'resisted' });
         expect(state.entities[1].statuses).toEqual([
-            { id: 'fear', stacks: 1, potency: 1 },
+            { id: 'wilt', stacks: 1, potency: 1 },
         ]);
     });
 
@@ -384,8 +384,8 @@ describe('applyStatus (D5c stacking + D5e resistance)', () => {
 describe('removeStatus', () => {
     it('should remove once and report misses', () => {
         const state = mkState();
-        expect(removeStatus(state, 'a', 'fear')).toBe(true);
-        expect(removeStatus(state, 'a', 'fear')).toBe(false);
+        expect(removeStatus(state, 'a', 'wilt')).toBe(true);
+        expect(removeStatus(state, 'a', 'wilt')).toBe(false);
         expect(state.entities[0].statuses).toEqual([]);
     });
 });

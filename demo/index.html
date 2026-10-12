@@ -4,6 +4,13 @@
      Vanilla HTML/CSS/TS only: no React, no backend, no fetch. Every panel's
      DOM is BUILT by its ui/*.ts module into the mount point below, so the
      modules own their markup and the shell stays a stable skeleton.
+
+     T3 UI: the duplicate "Combatant setup" (draft-driven) and "Entities"
+     (read-only) panels are GONE — ONE live "Combatants" panel
+     (ui/combatants.ts) renders snapshot.state and edits the running battle
+     through Simulation.editCombatant. The JSON editor (ui/editor.ts) remains
+     the original-definition / new-battle path ("Advanced battle definition /
+     Apply & restart").
 ============================================================================ -->
 <html lang="en">
     <head>
@@ -17,8 +24,8 @@
             <h1>Userfiction Combat — mock battle demo</h1>
             <!-- Trust boundary stated in the UI docs (D7 "Manifests vs code") -->
             <p class="trust">
-                JSON definitions are strictly data — validated, never executed (no eval, no code from
-                disk). The engine is synchronous; autoplay pacing lives in this UI only.
+                JSON definitions are strictly data — validated, never executed (no eval, no code from disk). The engine
+                is synchronous; autoplay pacing lives in this UI only.
             </p>
         </header>
 
@@ -36,15 +43,17 @@
                     <div id="banner" class="banner running" role="status"></div>
                 </section>
 
-                <!-- editor.ts mounts the JSON textarea + Apply/Import/Export + error list -->
+                <!-- editor.ts mounts the Advanced definition textarea + Apply & restart +
+                     Import/Export + error list (the new-battle path) -->
                 <div id="editor-mount"></div>
             </div>
 
             <div class="col col-right">
-                <section class="panel" aria-label="Entities">
-                    <h2>Entities</h2>
-                    <!-- entities.ts mounts the combatant cards here -->
-                    <div id="entities-mount" class="cards"></div>
+                <!-- combatants.ts mounts the live per-combatant cards here:
+                     state display + health/stats/gear/statuses/resources/injury editing -->
+                <section class="panel" aria-label="Combatants">
+                    <h2>Combatants</h2>
+                    <div id="combatants-mount"></div>
                 </section>
 
                 <section class="panel" aria-label="Battle timeline">

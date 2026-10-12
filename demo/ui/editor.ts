@@ -1,17 +1,27 @@
 // ============================================================================
-// demo/ui/editor.ts — JSON definition editor (D12)
+// demo/ui/editor.ts — Advanced battle definition editor (D12, T3 relabel)
 // ============================================================================
-// Textarea + Apply + Import (file input) + Export definition + Export current
-// snapshot (Blob download). Apply flow (D12 "UI behavior"):
+// Textarea + Apply & restart + Import (file input) + Export definition +
+// Export current snapshot (Blob download). Apply flow (D12 "UI behavior"):
 //   text → JSON.parse (parse failure ⇒ single numbered error)
 //        → host.apply(parsed) → validateBattleDefinition inside main.ts
 //        → invalid ⇒ numbered <ol> error list printed VERBATIM (validation.ts
 //          message strings are stable by contract, T2); valid ⇒ simulation
 //          replaced.
+// T3 ROLE CHANGE — "Advanced battle definition / Apply & restart": this
+// editor is now ONLY the original-definition / new-battle path. Live
+// combatant editing happens in the Combatants panel (ui/combatants.ts)
+// through Simulation.editCombatant — it never touches this textarea and
+// never sets any "unapplied" marker (there is none anymore). A malformed
+// mid-edit draft here is harmless to the live panel: the Combatants panel
+// reads the SNAPSHOT, not this text. The draft takes effect exclusively
+// through the explicit Apply & restart (or a fixture/import), which always
+// STARTS A NEW BATTLE.
+//
 // RESET vs INVALID EDITOR (task semantics): Reset belongs to the live
 // simulation (controls.ts) and NEVER reads this textarea — an invalid draft
-// stays visible with its error list while Reset rewinds the last successfully
-// applied battle. The draft only takes effect through Apply.
+// stays visible with its error list while Reset rewinds the last
+// successfully applied battle.
 //
 // Safety: every dynamic string (errors, file names, JSON text) goes through
 // textContent / Blob — no innerHTML, so definition content can never inject
@@ -36,6 +46,8 @@ export interface EditorHost {
 export interface Editor {
     /** Replace textarea content (fixture selection / import). */
     setText(text: string): void;
+    /** Current draft text (still exported for parity/debug tooling). */
+    getText(): string;
     /** Print a numbered error list (empty array clears and hides it). */
     showErrors(errors: string[]): void;
 }
@@ -56,7 +68,10 @@ function downloadJson(filename: string, json: string): void {
 // File-name slug from the definition name (ids.ts pattern is entity-only;
 // names are free text, so strip to [a-z0-9-] and fall back to 'battle')
 function definitionSlug(name: string | undefined): string {
-    const slug = (name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const slug = (name ?? '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
     return slug === '' ? 'battle' : slug;
 }
 
@@ -66,13 +81,21 @@ export function createEditor(mount: HTMLElement, host: EditorHost): Editor {
     root.setAttribute('aria-label', 'Definition editor');
 
     const heading = document.createElement('h2');
-    heading.textContent = 'Definition editor';
+    heading.textContent = 'Advanced battle definition';
     root.appendChild(heading);
+
+    // Role guidance (T3): the editor is the original-definition/new-battle
+    // path; live editing lives in the Combatants panel.
+    const help = document.createElement('p');
+    help.className = 'editor-help';
+    help.textContent =
+        'The battle definition the current battle was started from — and where new battles come from. Live combatant edits in the Combatants panel are not shown here. Apply & restart validates this JSON and starts a NEW battle.';
+    root.appendChild(help);
 
     const textarea = document.createElement('textarea');
     textarea.id = 'combat-editor';
     textarea.spellcheck = false;
-    textarea.setAttribute('aria-label', 'Battle definition JSON');
+    textarea.setAttribute('aria-label', 'Advanced battle definition JSON');
     root.appendChild(textarea);
 
     const actions = document.createElement('div');
@@ -103,7 +126,8 @@ export function createEditor(mount: HTMLElement, host: EditorHost): Editor {
     };
 
     // Apply: parse first (parse errors are reported like validation errors),
-    // then hand the parsed value to main.ts for validate-or-replace
+    // then hand the parsed value to main.ts for validate-or-replace. The
+    // restart consequence is explicit in the label (T3 contract wording).
     const applyText = (): void => {
         let parsed: unknown;
         try {
@@ -114,7 +138,9 @@ export function createEditor(mount: HTMLElement, host: EditorHost): Editor {
         }
         showErrors(host.apply(parsed));
     };
-    actions.appendChild(makeAction('Apply', applyText));
+    const applyButton = makeAction('Apply & restart', applyText);
+    applyButton.setAttribute('aria-label', 'Apply battle definition and restart battle');
+    actions.appendChild(applyButton);
 
     // Import: file input → load text into the editor AND attempt Apply
     // (checklist "Import/Export produce valid JSON": an invalid import keeps
@@ -149,7 +175,7 @@ export function createEditor(mount: HTMLElement, host: EditorHost): Editor {
                 // fall back to the 'battle' slug rather than fail the download
             }
             downloadJson(`${slug}-definition.json`, json);
-        }),
+        })
     );
 
     // Export current snapshot — plain JSON, replayable with the same plugin
@@ -165,7 +191,7 @@ export function createEditor(mount: HTMLElement, host: EditorHost): Editor {
                 // same unreachable-fallback reasoning as above
             }
             downloadJson(`${slug}-snapshot.json`, json);
-        }),
+        })
     );
 
     root.appendChild(actions);
@@ -176,6 +202,9 @@ export function createEditor(mount: HTMLElement, host: EditorHost): Editor {
         setText(text: string): void {
             textarea.value = text;
         },
-        showErrors,
+        getText(): string {
+            return textarea.value;
+        },
+        showErrors
     };
 }

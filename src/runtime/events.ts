@@ -193,15 +193,18 @@ export const eventFormatters: Record<string, (event: Event, snapshot?: Simulatio
         const target = nameOf(event.target, snapshot) ?? '?';
         const weaponId = str(event.payload, 'weaponId');
         let text: string;
-        if (source === 'poison') {
-            text = `${target} suffers poison for ${amount} ${damageType} damage`;
-        } else if (source === 'effect') {
+        if (source === 'effect') {
             text = `${target} takes ${amount} ${damageType} damage`;
         } else if (weaponId !== undefined) {
             // Pinned (D11): "Whisper hits Fang Brute with cult-dagger for 4 sharp damage"
             text = `${attacker ?? '?'} hits ${target} with ${weaponId} for ${amount} ${damageType} damage`;
-        } else {
+        } else if (source === 'unarmed') {
             text = `${attacker ?? '?'} hits ${target} bare-handed for ${amount} ${damageType} damage`;
+        } else {
+            // Generic damage-over-time naming: the source IS the status id
+            // (the definition turn-end tick emits source: statusId), so any
+            // custom DOT renders by its own name — no hardcoded per-id cases.
+            text = `${target} suffers ${source} for ${amount} ${damageType} damage`;
         }
         // Pinned variants (D11): crit/block suffixes. crit rides in payload
         // (see header note); blocked rides in mitigations.blocked (D11).
@@ -294,6 +297,13 @@ export const eventFormatters: Record<string, (event: Event, snapshot?: Simulatio
     // D8 'emit' effect custom event (pipeline type 'message'): the message
     // IS the text.
     message: (event) => event.message ?? '',
+    // T3 live edit: the subject rides actor; the payload carries the touched
+    // domain list (see pipeline.ts editCombatant payload builder).
+    'combatant:edited': (event, snapshot) => {
+        const domains = event.payload?.['domains'];
+        const list = Array.isArray(domains) ? (domains as unknown[]).filter((entry): entry is string => typeof entry === 'string') : [];
+        return `${nameOf(event.actor, snapshot) ?? '?'} edited${list.length > 0 ? ` (${list.join(', ')})` : ''}`;
+    },
 };
 
 // D11 renderer: one formatter per type + fallback `[${type}] ${message ?? ''}`.

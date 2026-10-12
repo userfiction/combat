@@ -879,3 +879,58 @@ export function dropScheduleEntries(state: CombatState, entityId: string): numbe
     state.schedule = state.schedule.filter((entry) => entry.entityId !== entityId);
     return before - state.schedule.length;
 }
+
+// ----------------------------------------------------------------------------
+// T3 live-edit mutation helpers (Simulation.editCombatant, pipeline.ts is
+// the only caller). Both are plain state.ts writers in the same ownership
+// spirit as the helpers above: locate by id (unknown ⇒ throw), return
+// result copies, never touch derived stats (entity.stats is recomputed by
+// the caller, entityEffectiveStats — see the EntityState comment).
+// ----------------------------------------------------------------------------
+
+// Admin status set (T3 editCombatant statuses op 'set'): upsert the instance
+// EXACTLY as given (no resistance, no stack-cap refresh math — the direct
+// admin path), then materialize the definition's per-stack modifiers when a
+// definition is supplied (same materialization contract as applyStatus —
+// overwrite, never accumulate). Returns the stored instance copy.
+export function adminSetStatus(
+    state: CombatState,
+    entityId: string,
+    instance: StatusInstance,
+    definition?: StatusDefinition,
+): StatusInstance {
+    const entity = findEntity(state, entityId);
+    const stacks = instance.stacks ?? 1;
+    const stored: StatusInstance = { id: instance.id, stacks, potency: instance.potency ?? 1 };
+    if (instance.duration !== undefined) stored.duration = instance.duration;
+    setInstanceModifiers(stored, scaledStatusModifiers(definition?.modifiers, stacks));
+    const index = entity.statuses.findIndex((status) => status.id === stored.id);
+    if (index >= 0) entity.statuses[index] = stored;
+    else entity.statuses.push(stored);
+    return deepCopy(stored);
+}
+
+// Admin gear slot write (T3 editCombatant gear): entry null CLEARS the slot
+// (removing an absent occupant is a validated no-op upstream — the edit
+// validator rejects it), a non-null entry REPLACES the occupant in place or
+// is appended (equipment order stays stable). Returns the previous occupant
+// copy, or null when the slot was empty.
+export function setSlotGear(state: CombatState, entityId: string, entry: EquipmentEntry | null): EquipmentEntry | null {
+    const entity = findEntity(state, entityId);
+    if (entry === null) return null;
+    const index = entity.equipment.findIndex((piece) => piece.slot === entry.slot);
+    const previous = index >= 0 ? deepCopy(entity.equipment[index]) : null;
+    if (index >= 0) entity.equipment[index] = deepCopy(entry);
+    else entity.equipment.push(deepCopy(entry));
+    return previous;
+}
+
+// Admin gear slot clear (T3 editCombatant gear id null). Returns the removed
+// occupant copy, or null when the slot was already empty.
+export function clearSlotGear(state: CombatState, entityId: string, slot: Slot): EquipmentEntry | null {
+    const entity = findEntity(state, entityId);
+    const index = entity.equipment.findIndex((piece) => piece.slot === slot);
+    if (index < 0) return null;
+    const [removed] = entity.equipment.splice(index, 1);
+    return removed;
+}

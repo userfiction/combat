@@ -1,0 +1,75 @@
+{
+    "schemaVersion": 1,
+    "name": "Status Trials",
+    "mode": "teams",
+    "teams": [
+        { "id": "circle", "name": "Grove Circle", "members": ["warden", "acolyte"] },
+        { "id": "pack", "name": "Ashen Pack", "members": ["marauder", "tracker"] }
+    ],
+    "catalogs": {
+        "gear": [
+            { "id": "grove-staff", "name": "Grove Staff", "kind": "weapon", "slot": "weapon-1", "handedness": 2,
+              "type": "blunt", "damage": 6, "blunt": 0, "sharp": 0, "durability": 9 },
+            { "id": "ashen-cleaver", "name": "Ashen Cleaver", "kind": "weapon", "slot": "weapon-1", "handedness": 1,
+              "type": "sharp", "damage": 5, "blunt": 0, "sharp": 0, "durability": 8 },
+            { "id": "healer-bandolier", "name": "Healer Bandolier", "kind": "armour", "slot": "hands", "handedness": 0,
+              "type": "sharp", "damage": 0, "blunt": 0.1, "sharp": 0.1, "durability": 6 },
+            { "id": "scout-boots", "name": "Scout Boots", "kind": "armour", "slot": "feet", "handedness": 0,
+              "type": "sharp", "damage": 0, "blunt": 0.05, "sharp": 0.05, "durability": 7 }
+        ],
+        "abilities": [
+            { "id": "second-wind", "name": "Second Wind", "cost": 1, "cooldown": 3, "costs": { "stamina": 3 },
+              "effects": [ { "type": "heal", "target": "self", "amount": 6 } ] },
+            { "id": "splint", "name": "Splint", "cost": 2, "cooldown": 4, "costs": { "mana": 2 },
+              "effects": [ { "type": "heal-injury", "target": "self", "part": "left-leg" },
+                           { "type": "heal", "target": "self", "amount": 4 } ] },
+            { "id": "maim", "name": "Maim", "cost": 2, "cooldown": 3, "costs": { "stamina": 2 },
+              "conditions": { "type": "chance", "p": 0.5 },
+              "effects": [ { "type": "strike" },
+                           { "type": "apply-injury", "target": "target", "part": "left-leg" } ] }
+        ],
+        "statuses": [
+            { "id": "regenerating", "name": "Regenerating", "decay": "duration", "tick": { "heal": 1 } },
+            { "id": "courage", "name": "Courage", "decay": "stacks", "modifiers": { "strength": 2 } }
+        ]
+    },
+    "entities": [
+        { "id": "warden", "name": "Rowan the Warden", "team": "circle",
+          "stats": { "health": 34, "strength": 7, "speed": 1.1, "defense": 2 },
+          "statuses": [ { "id": "bleeding", "stacks": 2, "duration": 3 } ],
+          "resources": { "stamina": { "current": 12, "max": 12 } },
+          "equipment": { "weapons": [ { "id": "grove-staff", "slot": "weapon-1" } ],
+                         "armour": [ { "id": "padded-vest", "slot": "body" }, { "id": "iron-helm", "slot": "head" } ] },
+          "abilities": ["second-wind"] },
+        { "id": "acolyte", "name": "Fen the Acolyte", "team": "circle",
+          "stats": { "health": 22, "strength": 3, "speed": 1.4, "evasion": 2 },
+          "statuses": [ { "id": "hasted", "duration": 4 } ],
+          "resources": { "mana": { "current": 10, "max": 10 } },
+          "equipment": { "armour": [ { "id": "healer-bandolier", "slot": "hands" } ] },
+          "abilities": ["splint"] },
+        { "id": "marauder", "name": "Grash the Marauder", "team": "pack",
+          "stats": { "health": 38, "strength": 9, "speed": 0.9 },
+          "injuries": [ "left-eye" ],
+          "statuses": [ { "id": "poisoned", "duration": 3 } ],
+          "resources": { "stamina": { "current": 6, "max": 6 } },
+          "equipment": { "weapons": [ { "id": "ashen-cleaver", "slot": "weapon-1" } ],
+                         "armour": [ { "id": "buckler", "slot": "shield" } ] },
+          "abilities": ["maim"] },
+        { "id": "tracker", "name": "Skiff the Tracker", "team": "pack",
+          "stats": { "health": 26, "strength": 5, "speed": 1.6, "precision": 3 },
+          "statuses": [ { "id": "blinded", "duration": 2 }, { "id": "regenerating", "duration": 4 }, { "id": "courage", "stacks": 1 } ],
+          "statusResistances": { "poisoned": 0.5 },
+          "equipment": { "weapons": [ { "id": "rusted-dagger", "slot": "weapon-1" } ],
+                         "armour": [ { "id": "scout-boots", "slot": "feet" } ] } }
+    ],
+    "startingConditions": { "seed": 21, "config": { "maxSteps": 3000 } },
+    "rules": {
+        "contributions": [
+            { "id": "adrenaline-surge", "hook": "damage:post",
+              "when": { "type": "all", "of": [
+                  { "type": "stat", "ref": "self", "stat": "health", "op": "lte", "value": 8 },
+                  { "type": "chance", "p": 0.4 } ] },
+              "effects": [ { "type": "apply-status", "target": "self", "status": "hasted", "duration": 3 } ] }
+        ]
+    }
+}
