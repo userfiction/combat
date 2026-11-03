@@ -6,36 +6,43 @@ Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
 
 [1m[30m[46m RUN [49m[39m[22m [36mv4.1.12 [39m[90mD:/Projects/typescript/noobscript/packages/userfiction/combat[39m
 
- [32m✓[39m src/runtime/rng.test.ts [2m([22m[2m16 tests[22m[2m)[22m[32m 74[2mms[22m[39m
- [32m✓[39m src/runtime/events.test.ts [2m([22m[2m19 tests[22m[2m)[22m[32m 22[2mms[22m[39m
- [32m✓[39m src/data/catalogs.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 21[2mms[22m[39m
- [32m✓[39m src/data/validation.test.ts [2m([22m[2m55 tests[22m[2m)[22m[32m 41[2mms[22m[39m
- [32m✓[39m src/engine/pipeline.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 44[2mms[22m[39m
- [32m✓[39m src/data/status-catalog.test.ts [2m([22m[2m21 tests[22m[2m)[22m[32m 35[2mms[22m[39m
- [32m✓[39m src/engine/userCombat-t2.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 51[2mms[22m[39m
- [32m✓[39m src/engine/injuries.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 77[2mms[22m[39m
- [32m✓[39m src/engine/resources.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 150[2mms[22m[39m
- [32m✓[39m src/engine/userCombat.test.ts [2m([22m[2m21 tests[22m[2m)[22m[33m 312[2mms[22m[39m
- [32m✓[39m src/engine/engine.test.ts [2m([22m[2m44 tests[22m[2m)[22m[33m 1255[2mms[22m[39m
- [32m✓[39m src/engine/ailments.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 266[2mms[22m[39m
+ [32m✓[39m src/runtime/state.test.ts [2m([22m[2m27 tests[22m[2m)[22m[32m 57[2mms[22m[39m
+ [32m✓[39m src/behavior/plugins.test.ts [2m([22m[2m22 tests[22m[2m)[22m[32m 50[2mms[22m[39m
+ [32m✓[39m src/runtime/rng.test.ts [2m([22m[2m16 tests[22m[2m)[22m[32m 99[2mms[22m[39m
+ [32m✓[39m src/behavior/effects.test.ts [2m([22m[2m25 tests[22m[2m)[22m[32m 66[2mms[22m[39m
+ [32m✓[39m src/data/validation.test.ts [2m([22m[2m55 tests[22m[2m)[22m[32m 63[2mms[22m[39m
+ [32m✓[39m src/runtime/scheduler.test.ts [2m([22m[2m32 tests[22m[2m)[22m[32m 84[2mms[22m[39m
+ [32m✓[39m src/engine/resources.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 105[2mms[22m[39m
+ [32m✓[39m src/engine/userCombat-t2.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 111[2mms[22m[39m
+ [32m✓[39m src/data/status-catalog.test.ts [2m([22m[2m21 tests[22m[2m)[22m[32m 102[2mms[22m[39m
+ [32m✓[39m src/engine/injuries.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 153[2mms[22m[39m
+ [32m✓[39m src/engine/ailments.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 144[2mms[22m[39m
+ [32m✓[39m src/engine/userCombat.test.ts [2m([22m[2m21 tests[22m[2m)[22m[32m 216[2mms[22m[39m
  [32m✓[39m src/engine/editCombatant.test.ts [2m([22m[2m36 tests[22m[2m)[22m[33m 352[2mms[22m[39m
- [32m✓[39m demo/ui/combatants.test.ts [2m([22m[2m27 tests[22m[2m)[22m[32m 22[2mms[22m[39m
- [32m✓[39m src/behavior/effects.test.ts [2m([22m[2m25 tests[22m[2m)[22m[32m 38[2mms[22m[39m
- [32m✓[39m src/behavior/rules.test.ts [2m([22m[2m43 tests[22m[2m)[22m[32m 62[2mms[22m[39m
- [32m✓[39m src/runtime/scheduler.test.ts [2m([22m[2m32 tests[22m[2m)[22m[32m 23[2mms[22m[39m
- [32m✓[39m src/runtime/state.test.ts [2m([22m[2m27 tests[22m[2m)[22m[32m 40[2mms[22m[39m
- [32m✓[39m src/runtime/status-state.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 28[2mms[22m[39m
- [32m✓[39m src/behavior/plugins.test.ts [2m([22m[2m22 tests[22m[2m)[22m[32m 35[2mms[22m[39m
- [32m✓[39m demo/main.test.ts [2m([22m[2m28 tests[22m[2m)[22m[33m 6675[2mms[22m[39m
-     [33m[2m✓[22m[39m renders ONE live Combatants panel — the duplicate setup/entities lists are gone [33m 1453[2mms[22m[39m
-     [33m[2m✓[22m[39m switching fixtures starts a new battle and clears the edit notes [33m 526[2mms[22m[39m
-     [33m[2m✓[22m[39m a current-health edit keeps the step, virtual time and log; stepping continues (no restart) [33m 326[2mms[22m[39m
-     [33m[2m✓[22m[39m valid custom statuses from the definition registry are settable live [33m 349[2mms[22m[39m
-     [33m[2m✓[22m[39m step-driven re-renders never clobber a half-typed field or drop focus [33m 371[2mms[22m[39m
+ [32m✓[39m src/engine/engine.test.ts [2m([22m[2m44 tests[22m[2m)[22m[33m 775[2mms[22m[39m
+ [32m✓[39m src/runtime/status-state.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 74[2mms[22m[39m
+ [32m✓[39m src/behavior/rules.test.ts [2m([22m[2m43 tests[22m[2m)[22m[32m 179[2mms[22m[39m
+ [32m✓[39m demo/ui/combatants.test.ts [2m([22m[2m27 tests[22m[2m)[22m[32m 55[2mms[22m[39m
+ [32m✓[39m src/runtime/events.test.ts [2m([22m[2m19 tests[22m[2m)[22m[32m 52[2mms[22m[39m
+ [32m✓[39m src/engine/pipeline.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 204[2mms[22m[39m
+ [32m✓[39m src/data/catalogs.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 199[2mms[22m[39m
+ [32m✓[39m demo/main.test.ts [2m([22m[2m28 tests[22m[2m)[22m[33m 9247[2mms[22m[39m
+     [33m[2m✓[22m[39m renders ONE live Combatants panel — the duplicate setup/entities lists are gone [33m 933[2mms[22m[39m
+     [33m[2m✓[22m[39m switching fixtures starts a new battle and clears the edit notes [33m 659[2mms[22m[39m
+     [33m[2m✓[22m[39m a current-health edit keeps the step, virtual time and log; stepping continues (no restart) [33m 940[2mms[22m[39m
+     [33m[2m✓[22m[39m a max-health edit (baseStats.health) recomputes the meter ceiling in live state [33m 344[2mms[22m[39m
+     [33m[2m✓[22m[39m a two-handed pick clears the held shield in the SAME patch and keeps unrelated armour [33m 378[2mms[22m[39m
+     [33m[2m✓[22m[39m sets a pool with an explicit pair and updates the meter [33m 304[2mms[22m[39m
+     [33m[2m✓[22m[39m step-driven re-renders never clobber a half-typed field or drop focus [33m 672[2mms[22m[39m
+     [33m[2m✓[22m[39m a terminal battle switches the panel to read-only with explicit Reset guidance [33m 325[2mms[22m[39m
+     [33m[2m✓[22m[39m Reset discards live edits and rewinds to the original battle [33m 401[2mms[22m[39m
+     [33m[2m✓[22m[39m non-numeric health is rejected inline with the exact message [33m 395[2mms[22m[39m
+     [33m[2m✓[22m[39m out-of-bounds status stacks are rejected inline without mutation [33m 344[2mms[22m[39m
+     [33m[2m✓[22m[39m current > max and non-integer resource values are rejected inline [33m 351[2mms[22m[39m
 
 [2m Test Files [22m [1m[32m21 passed[39m[22m[90m (21)[39m
 [2m      Tests [22m [1m[32m504 passed[39m[22m[90m (504)[39m
-[2m   Start at [22m 00:38:12
-[2m   Duration [22m 27.78s[2m (transform 37.13s, setup 0ms, import 49.14s, tests 9.62s, environment 160.64s)[22m
+[2m   Start at [22m 20:19:01
+[2m   Duration [22m 16.64s[2m (transform 11.70s, setup 0ms, import 17.43s, tests 12.38s, environment 66.57s)[22m
 
-Done in 37.48s.
+Done in 19.94s.
