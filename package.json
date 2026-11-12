@@ -3,31 +3,33 @@
     "version": "1.0.2",
     "description": "Combat system for User Fiction",
     "type": "module",
-    "main": "./dist/userfiction-combat.mjs",
-    "module": "./dist/userfiction-combat.mjs",
-    "types": "dist/index.d.ts",
+    "main": "./src/index.ts",
+    "module": "./src/index.ts",
+    "types": "./src/index.ts",
     "exports": {
         ".": {
-            "types": "./dist/index.d.ts",
-            "development": "./index.ts",
-            "import": "./dist/userfiction-combat.mjs"
+            "types": "./src/index.ts",
+            "default": "./src/index.ts"
         }
     },
     "files": [
-        "dist",
         "index.ts",
+        "src",
         "**/*.ts",
         "!**/*.test.ts",
+        "!src/**/__snapshots__/**",
         "!vite.config.ts",
-        "!demo"
+        "!demo",
+        "!vitest.config.ts",
+        "!**/*.d.ts",
+        "!Temp/**",
+        "!coverage/**"
     ],
     "publishConfig": {
         "access": "public",
         "registry": "https://registry.npmjs.org"
     },
     "scripts": {
-        "build": "vite build && tsc -p tsconfig.build.json",
-        "prepack": "npm run build",
         "test": "vitest run",
         "typecheck": "tsc --noEmit",
         "release": "vite-node ../../../scripts/publish-safe.ts",

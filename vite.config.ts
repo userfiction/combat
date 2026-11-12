@@ -1,15 +1,19 @@
-// Vite config for @userfiction/combat (npm-publishable library build).
-// - Library mode, ESM-only output `dist/userfiction-combat.mjs` — matches the
-//   `exports.import` condition in package.json (consumed by external npm users;
-//   workspace dev keeps resolving TS source via the `development` condition).
-// - Workspace dependencies listed in package.json stay EXTERNAL (vite
-//   auto-externalizes them); the explicit pattern below is a guard so a
-//   manifest edit can never silently bundle sibling workspace packages.
-// - TEST: this file also shadows the root vitest config when vitest runs with
-//   this package as cwd (package.json "test": "vitest run"), so the root's
-//   test settings (jsdom + globals) are mirrored here.
+// Vite config for @userfiction/combat.
+// SOURCE-ONLY LIBRARY (repo policy: AGENTS.md "Runtime / runner policy" (c)):
+// this package publishes TypeScript from source — package.json main/module/
+// types/exports all point at ./src/index.ts, so there is NO library build here
+// and no dist/ output. Consumers are Vite-based and compile/roll up the TS from
+// node_modules themselves (workspace deps like @presource/core stay ordinary
+// dependencies and are transpiled from their own src by the consumer);
+// package.json therefore has no "build"/"prepack" scripts.
+// The demo (demo/) is a DEPLOYABLE app surface, NOT a library build: it keeps
+// its own Vite config + demo/dist output via "dev" / "demo:build" /
+// "demo:preview" -> demo/vite.config.ts (standalone; it does not extend this
+// file) and demo/ is excluded from the published "files" list.
+// - TEST: this file is the vitest config when vitest runs with this package as
+//   cwd (package.json "test": "vitest run"), so the root's test settings
+//   (jsdom + globals) are mirrored here.
 import { defineConfig } from 'vitest/config';
-import { resolve } from 'path';
 
 export default defineConfig({
     test: {
@@ -19,21 +23,5 @@ export default defineConfig({
         globals: true,
         include: ['**/*.{test,spec}.{ts,tsx,js,jsx}'],
         passWithNoTests: true,
-    },
-    build: {
-        lib: {
-            entry: resolve(__dirname, 'index.ts'),
-            name: 'userfiction-combat',
-            formats: ['es'],
-            fileName: () => 'userfiction-combat.mjs',
-        },
-        rollupOptions: {
-            external: [/^node:/, /^@presource\//, /^@userfiction\//],
-            output: {
-                globals: {},
-            },
-        },
-        sourcemap: true,
-        emptyOutDir: true,
     },
 });
